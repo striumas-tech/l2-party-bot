@@ -227,6 +227,17 @@ async def lfp(
     zone: str,
     time: str,
     leader_class: Choice[str],
+
+    # Support classes
+    wc: int = 0,
+    pp: int = 0,
+    bd: int = 0,
+    sws: int = 0,
+    se: int = 0,
+    ee: int = 0,
+    bs: int = 0,
+
+    # Damage / misc
     dd: int = 0,
     spoil: int = 0,
     leacher: int = 0,
@@ -249,13 +260,20 @@ async def lfp(
         return
 
     roles_required = {
-        k: v for k, v in {
-            "dd": dd,
-            "spoil": spoil,
-            "leacher": leacher,
-            "random": random
-        }.items() if v > 0
-    }
+    k: v for k, v in {
+        "wc": wc,
+        "pp": pp,
+        "bd": bd,
+        "sws": sws,
+        "se": se,
+        "ee": ee,
+        "bs": bs,
+        "dd": dd,
+        "spoil": spoil,
+        "leacher": leacher,
+        "random": random,
+    }.items() if v > 0
+}
 
     if sum(roles_required.values()) + 1 > MAX_PARTY_SIZE:
         await interaction.response.send_message(
