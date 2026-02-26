@@ -327,7 +327,7 @@ async def close(interaction: discord.Interaction):
 
 @bot.event
 async def on_ready():
-    GUILD_ID = YOUR_SERVER_ID  # put your server ID here
+    GUILD_ID = 1475783395844821047
     await tree.sync(guild=discord.Object(id=GUILD_ID))
     print(f"Logged in as {bot.user}")
 
