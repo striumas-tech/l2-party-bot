@@ -269,5 +269,42 @@ async def lfp(ctx, zone: str, time: str, leader_class: str,
     message = await ctx.send(embed=embed, view=view)
     party["message_id"] = message.id
 
+@bot.command()
+async def leave(ctx):
+    if ctx.author.id not in user_party_map:
+        await ctx.send("You are not in a party.")
+        return
+
+    party_id = user_party_map[ctx.author.id]
+    party = active_parties.get(party_id)
+
+    if not party:
+        del user_party_map[ctx.author.id]
+        await ctx.send("Party not found. Cleaned up.")
+        return
+
+    # Leader leaving closes party
+    if ctx.author.id == party["leader_id"]:
+        del active_parties[party_id]
+        for uid in list(user_party_map):
+            if user_party_map[uid] == party_id:
+                del user_party_map[uid]
+
+        channel = bot.get_channel(party["channel_id"])
+        try:
+            message = await channel.fetch_message(party["message_id"])
+            await message.delete()
+        except:
+            pass
+
+        await ctx.send("Leader left. Party closed.")
+        return
+
+    # Normal member leaving
+    del party["members"][ctx.author.id]
+    del user_party_map[ctx.author.id]
+
+    await update_party_message(party)
+    await ctx.send("You left the party.")
 
 bot.run(TOKEN)
