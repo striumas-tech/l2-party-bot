@@ -106,7 +106,6 @@ class JoinButton(discord.ui.Button):
         self.role = role
 
     async def callback(self, interaction: discord.Interaction):
-
         party = active_parties.get(self.party_id)
         if not party:
             await interaction.response.send_message(
@@ -131,27 +130,6 @@ class JoinButton(discord.ui.Button):
         view = PartyView(self.party_id)
 
         await interaction.message.edit(embed=embed, view=view)
-
-        party = active_parties.get(self.party_id)
-        if not party:
-            await interaction.response.send_message(
-                "Party no longer exists.",
-                ephemeral=True
-            )
-            return
-
-        party["members"][interaction.user.id] = self.role
-        user_party_map[interaction.user.id] = self.party_id
-
-        embed = build_embed(party)
-        view = PartyView(self.party_id)
-        await interaction.message.edit(embed=embed, view=view)
-
-        await interaction.response.send_message(
-            "Joined successfully.",
-            ephemeral=True
-        )
-
 
 class LeaveButton(discord.ui.Button):
     def __init__(self, party_id):
