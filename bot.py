@@ -4,14 +4,15 @@ from datetime import datetime, timezone
 from typing import Dict
 
 import discord
-from discord.ext import commands
+from discord import app_commands
+from discord.app_commands import Choice
 
 TOKEN = os.getenv("DISCORD_TOKEN")
+GUILD_ID = 1149113323200200825  # <-- CHANGE if needed
 
 intents = discord.Intents.default()
-intents.message_content = True
-
-bot = commands.Bot(command_prefix=".", intents=intents)
+bot = discord.Client(intents=intents)
+tree = app_commands.CommandTree(bot)
 
 MAX_PARTY_SIZE = 9
 
@@ -21,7 +22,7 @@ party_counter = 100
 
 
 # ==============================
-# Utility
+# Utilities
 # ==============================
 
 def parse_utc_time(time_str: str):
@@ -40,10 +41,6 @@ def party_total_slots(party):
 
 def party_current_count(party):
     return len(party["members"])
-
-
-def is_party_full(party):
-    return party_current_count(party) >= party_total_slots(party)
 
 
 def build_embed(party):
@@ -109,6 +106,7 @@ class JoinButton(discord.ui.Button):
         self.role = role
 
     async def callback(self, interaction: discord.Interaction):
+
         if interaction.user.id in user_party_map:
             await interaction.response.send_message(
                 "You are already in a party.",
@@ -124,17 +122,13 @@ class JoinButton(discord.ui.Button):
             )
             return
 
-        if is_party_full(party):
-            await interaction.response.send_message(
-                "Party is full.",
-                ephemeral=True
-            )
-            return
-
         party["members"][interaction.user.id] = self.role
         user_party_map[interaction.user.id] = self.party_id
 
-        await update_party_message(party)
+        embed = build_embed(party)
+        view = PartyView(self.party_id)
+        await interaction.message.edit(embed=embed, view=view)
+
         await interaction.response.send_message(
             "Joined successfully.",
             ephemeral=True
@@ -143,10 +137,7 @@ class JoinButton(discord.ui.Button):
 
 class LeaveButton(discord.ui.Button):
     def __init__(self, party_id):
-        super().__init__(
-            label="Leave Party",
-            style=discord.ButtonStyle.secondary
-        )
+        super().__init__(label="Leave Party", style=discord.ButtonStyle.secondary)
         self.party_id = party_id
 
     async def callback(self, interaction: discord.Interaction):
@@ -160,19 +151,18 @@ class LeaveButton(discord.ui.Button):
 
         party = active_parties.get(self.party_id)
 
+        # Leader leaving closes party
         if interaction.user.id == party["leader_id"]:
-            del active_parties[self.party_id]
-            for uid in list(user_party_map):
-                if user_party_map[uid] == self.party_id:
-                    del user_party_map[uid]
-
-            await interaction.message.delete()
+            await close_party(self.party_id, interaction)
             return
 
         del party["members"][interaction.user.id]
         del user_party_map[interaction.user.id]
 
-        await update_party_message(party)
+        embed = build_embed(party)
+        view = PartyView(self.party_id)
+        await interaction.message.edit(embed=embed, view=view)
+
         await interaction.response.send_message(
             "You left the party.",
             ephemeral=True
@@ -181,10 +171,7 @@ class LeaveButton(discord.ui.Button):
 
 class CloseButton(discord.ui.Button):
     def __init__(self, party_id):
-        super().__init__(
-            label="Close Party",
-            style=discord.ButtonStyle.danger
-        )
+        super().__init__(label="Close Party", style=discord.ButtonStyle.danger)
         self.party_id = party_id
 
     async def callback(self, interaction: discord.Interaction):
@@ -198,37 +185,67 @@ class CloseButton(discord.ui.Button):
             )
             return
 
-        del active_parties[self.party_id]
-        for uid in list(user_party_map):
-            if user_party_map[uid] == self.party_id:
-                del user_party_map[uid]
-
-        await interaction.message.delete()
+        await close_party(self.party_id, interaction)
 
 
-async def update_party_message(party):
-    channel = bot.get_channel(party["channel_id"])
-    message = await channel.fetch_message(party["message_id"])
-    embed = build_embed(party)
-    view = PartyView(party["id"])
-    await message.edit(embed=embed, view=view)
+async def close_party(party_id, interaction):
+    party = active_parties.get(party_id)
+    if not party:
+        return
+
+    del active_parties[party_id]
+    for uid in list(user_party_map):
+        if user_party_map[uid] == party_id:
+            del user_party_map[uid]
+
+    await interaction.message.delete()
 
 
 # ==============================
-# .lfp Command (Original)
+# Slash Command
 # ==============================
 
-@bot.command()
-async def lfp(ctx, zone: str, time: str, leader_class: str,
-              dd: int = 0, spoil: int = 0, leacher: int = 0, random: int = 0):
+@tree.command(name="lfp", description="Create party", guild=discord.Object(id=GUILD_ID))
+@app_commands.choices(
+    leader_class=[
+        Choice(name="Destro", value="destro"),
+        Choice(name="WC", value="wc"),
+        Choice(name="PP", value="pp"),
+        Choice(name="BD", value="bd"),
+        Choice(name="SWS", value="sws"),
+        Choice(name="SE", value="se"),
+        Choice(name="EE", value="ee"),
+        Choice(name="BS", value="bs"),
+        Choice(name="Spoiler", value="spoil"),
+        Choice(name="DD", value="dd"),
+        Choice(name="Leacher", value="leacher"),
+        Choice(name="Random", value="random"),
+    ]
+)
+async def lfp(
+    interaction: discord.Interaction,
+    zone: str,
+    time: str,
+    leader_class: Choice[str],
+    dd: int = 0,
+    spoil: int = 0,
+    leacher: int = 0,
+    random: int = 0
+):
 
-    if ctx.author.id in user_party_map:
-        await ctx.send("You are already in a party.")
+    if interaction.user.id in user_party_map:
+        await interaction.response.send_message(
+            "You are already in a party.",
+            ephemeral=True
+        )
         return
 
     start_time = parse_utc_time(time)
     if not start_time:
-        await ctx.send("Invalid time format. Use HH:MM UTC.")
+        await interaction.response.send_message(
+            "Invalid time format. Use HH:MM UTC.",
+            ephemeral=True
+        )
         return
 
     roles_required = {
@@ -241,7 +258,10 @@ async def lfp(ctx, zone: str, time: str, leader_class: str,
     }
 
     if sum(roles_required.values()) + 1 > MAX_PARTY_SIZE:
-        await ctx.send("Party exceeds 9 member limit.")
+        await interaction.response.send_message(
+            "Party exceeds 9 member limit.",
+            ephemeral=True
+        )
         return
 
     global party_counter
@@ -251,87 +271,26 @@ async def lfp(ctx, zone: str, time: str, leader_class: str,
     party = {
         "id": party_id,
         "zone": zone,
-        "leader_id": ctx.author.id,
-        "leader_class": leader_class,
+        "leader_id": interaction.user.id,
+        "leader_class": leader_class.value,
         "start_time": start_time,
         "roles_required": roles_required,
-        "members": {ctx.author.id: leader_class},
-        "channel_id": ctx.channel.id,
-        "message_id": None
+        "members": {interaction.user.id: leader_class.value},
     }
 
     active_parties[party_id] = party
-    user_party_map[ctx.author.id] = party_id
+    user_party_map[interaction.user.id] = party_id
 
     embed = build_embed(party)
     view = PartyView(party_id)
 
-    message = await ctx.send(embed=embed, view=view)
-    party["message_id"] = message.id
+    await interaction.response.send_message(embed=embed, view=view)
 
-@bot.command()
-async def leave(ctx):
-    if ctx.author.id not in user_party_map:
-        await ctx.send("You are not in a party.")
-        return
 
-    party_id = user_party_map[ctx.author.id]
-    party = active_parties.get(party_id)
+@bot.event
+async def on_ready():
+    await tree.sync(guild=discord.Object(id=GUILD_ID))
+    print(f"Logged in as {bot.user}")
 
-    if not party:
-        del user_party_map[ctx.author.id]
-        await ctx.send("Party not found. Cleaned up.")
-        return
-
-    # Leader leaving closes party
-    if ctx.author.id == party["leader_id"]:
-        del active_parties[party_id]
-        for uid in list(user_party_map):
-            if user_party_map[uid] == party_id:
-                del user_party_map[uid]
-
-        channel = bot.get_channel(party["channel_id"])
-        try:
-            message = await channel.fetch_message(party["message_id"])
-            await message.delete()
-        except:
-            pass
-
-        await ctx.send("Leader left. Party closed.")
-        return
-
-    # Normal member leaving
-    del party["members"][ctx.author.id]
-    del user_party_map[ctx.author.id]
-
-    await update_party_message(party)
-    await ctx.send("You left the party.")
-
-@bot.command()
-async def close(ctx):
-    if ctx.author.id not in user_party_map:
-        await ctx.send("You are not in a party.")
-        return
-
-    party_id = user_party_map[ctx.author.id]
-    party = active_parties.get(party_id)
-
-    if not party or ctx.author.id != party["leader_id"]:
-        await ctx.send("Only leader can close the party.")
-        return
-
-    del active_parties[party_id]
-    for uid in list(user_party_map):
-        if user_party_map[uid] == party_id:
-            del user_party_map[uid]
-
-    channel = bot.get_channel(party["channel_id"])
-    try:
-        message = await channel.fetch_message(party["message_id"])
-        await message.delete()
-    except:
-        pass
-
-    await ctx.send("Party closed.")
 
 bot.run(TOKEN)
