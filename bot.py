@@ -96,23 +96,33 @@ class PartyView(discord.ui.View):
         self.add_item(CloseButton(party_id))
 
 
-class JoinButton(discord.ui.Button):
-    def __init__(self, party_id, role):
-        super().__init__(
-            label=f"Join {role.upper()}",
-            style=discord.ButtonStyle.primary
+async def callback(self, interaction: discord.Interaction):
+
+    party = active_parties.get(self.party_id)
+    if not party:
+        await interaction.response.send_message(
+            "Party no longer exists.",
+            ephemeral=True
         )
-        self.party_id = party_id
-        self.role = role
+        return
 
-    async def callback(self, interaction: discord.Interaction):
+    if interaction.user.id in user_party_map:
+        await interaction.response.send_message(
+            "You are already in a party.",
+            ephemeral=True
+        )
+        return
 
-        if interaction.user.id in user_party_map:
-            await interaction.response.send_message(
-                "You are already in a party.",
-                ephemeral=True
-            )
-            return
+    # Acknowledge interaction immediately (prevents 429)
+    await interaction.response.defer()
+
+    party["members"][interaction.user.id] = self.role
+    user_party_map[interaction.user.id] = self.party_id
+
+    embed = build_embed(party)
+    view = PartyView(self.party_id)
+
+    await interaction.message.edit(embed=embed, view=view)
 
         party = active_parties.get(self.party_id)
         if not party:
