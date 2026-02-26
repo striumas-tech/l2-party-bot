@@ -183,17 +183,55 @@ async def update_party_message(party):
 # ==============================
 
 @bot.command()
-async def lfp(ctx, zone: str, time: str, leader_class: str,
-              dd: int = 0, spoil: int = 0, leacher: int = 0, random: int = 0):
+async def lfp(ctx):
 
     if ctx.author.id in user_party_map:
         await ctx.send("You are already in a party.")
         return
 
-    start_time = parse_utc_time(time)
-    if not start_time:
-        await ctx.send("Invalid time format. Use HH:MM UTC.")
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel
+
+    await ctx.send("Zone?")
+    try:
+        zone_msg = await bot.wait_for("message", timeout=60, check=check)
+    except:
+        await ctx.send("Timed out.")
         return
+    zone = zone_msg.content
+
+    await ctx.send("Start time (HH:MM UTC)?")
+    try:
+        time_msg = await bot.wait_for("message", timeout=60, check=check)
+    except:
+        await ctx.send("Timed out.")
+        return
+
+    start_time = parse_utc_time(time_msg.content)
+    if not start_time:
+        await ctx.send("Invalid time format.")
+        return
+
+    await ctx.send("Your class?")
+    try:
+        class_msg = await bot.wait_for("message", timeout=60, check=check)
+    except:
+        await ctx.send("Timed out.")
+        return
+    leader_class = class_msg.content
+
+    async def ask_number(question):
+        await ctx.send(question)
+        try:
+            msg = await bot.wait_for("message", timeout=60, check=check)
+            return int(msg.content)
+        except:
+            return 0
+
+    dd = await ask_number("How many DD?")
+    spoil = await ask_number("How many Spoil?")
+    leacher = await ask_number("How many Leacher?")
+    random = await ask_number("How many Random?")
 
     roles_required = {
         k: v for k, v in {
@@ -233,7 +271,6 @@ async def lfp(ctx, zone: str, time: str, leader_class: str,
 
     message = await ctx.send(embed=embed, view=view)
     party["message_id"] = message.id
-
 
 @bot.command()
 async def leave(ctx):
