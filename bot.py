@@ -79,11 +79,11 @@ def build_embed(party, guild):
         inline=False
     )
 
-    leader = guild.get_member(party["leader_id"])
     embed.add_field(
-        name="Leader",
-        value=f"{leader.mention} ({party['leader_class']})",
-        inline=False
+    name="Leader",
+    value=f"<@{party['leader_id']}> ({party['leader_class']})",
+    inline=False
+
     )
 
     roles_text = ""
