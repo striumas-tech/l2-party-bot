@@ -6,9 +6,7 @@ from typing import Dict
 import discord
 from discord import app_commands
 from discord.ext import tasks
-from dotenv import load_dotenv
 
-load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 intents = discord.Intents.default()
