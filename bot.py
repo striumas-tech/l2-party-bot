@@ -110,7 +110,24 @@ class PartyView(discord.ui.View):
         super().__init__(timeout=None)
         self.party_id = party_id
 
-    async def join_role(self, interaction: discord.Interaction, role: str):
+        party = active_parties.get(party_id)
+        if not party:
+            return
+
+        for role in party["roles_required"]:
+            self.add_item(JoinButton(party_id, role))
+
+
+class JoinButton(discord.ui.Button):
+    def __init__(self, party_id, role):
+        super().__init__(
+            label=f"Join {role.upper()}",
+            style=discord.ButtonStyle.primary
+        )
+        self.party_id = party_id
+        self.role = role
+
+    async def callback(self, interaction: discord.Interaction):
         if interaction.user.id in user_party_map:
             await interaction.response.send_message(
                 "You are already in a party.",
@@ -133,7 +150,7 @@ class PartyView(discord.ui.View):
             )
             return
 
-        assigned = try_assign_role(party, role)
+        assigned = try_assign_role(party, self.role)
         if not assigned:
             await interaction.response.send_message(
                 "No available slot.",
