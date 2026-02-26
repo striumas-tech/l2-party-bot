@@ -186,8 +186,7 @@ async def update_party_message(party, guild):
     channel = guild.get_channel(party["channel_id"])
     message = await channel.fetch_message(party["message_id"])
     embed = build_embed(party, guild)
-    view = PartyView(party["id"])
-    view.generate_buttons()
+    view = PartyView(party_id)
     await message.edit(embed=embed, view=view)
 
 
