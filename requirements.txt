@@ -1,2 +1,1 @@
-py-cord==2.5.0
-# rebuild trigger
+discord.py==2.4.0 --no-binary :all:
