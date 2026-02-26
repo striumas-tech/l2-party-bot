@@ -67,7 +67,7 @@ def try_assign_role(party, requested_role):
     return None
 
 
-def build_embed(party, guild):
+def build_embed(party):
     embed = discord.Embed(
         title=f"Party #{party['id']} – {party['zone']}",
         color=discord.Color.green()
@@ -80,10 +80,9 @@ def build_embed(party, guild):
     )
 
     embed.add_field(
-    name="Leader",
-    value=f"<@{party['leader_id']}> ({party['leader_class']})",
-    inline=False
-
+        name="Leader",
+        value=f"<@{party['leader_id']}> ({party['leader_class']})",
+        inline=False
     )
 
     roles_text = ""
@@ -92,6 +91,7 @@ def build_embed(party, guild):
         roles_text += f"{role.upper()} ({filled}/{count})\n"
 
     embed.add_field(name="Roles", value=roles_text or "None", inline=False)
+
     embed.add_field(
         name="Total",
         value=f"{party_current_count(party)}/{party_total_slots(party)}",
@@ -102,7 +102,7 @@ def build_embed(party, guild):
 
 
 # ==============================
-# Button View
+# Button System
 # ==============================
 
 class PartyView(discord.ui.View):
@@ -128,6 +128,7 @@ class JoinButton(discord.ui.Button):
         self.role = role
 
     async def callback(self, interaction: discord.Interaction):
+
         if interaction.user.id in user_party_map:
             await interaction.response.send_message(
                 "You are already in a party.",
@@ -161,32 +162,18 @@ class JoinButton(discord.ui.Button):
         party["members"][interaction.user.id] = assigned
         user_party_map[interaction.user.id] = self.party_id
 
-        await update_party_message(party, interaction.guild)
+        await update_party_message(party)
         await interaction.response.send_message(
             "Joined successfully.",
             ephemeral=True
         )
 
-    def generate_buttons(self):
-        party = active_parties[self.party_id]
-        for role in party["roles_required"]:
-            button = discord.ui.Button(
-                label=f"Join {role.upper()}",
-                style=discord.ButtonStyle.primary
-            )
 
-            async def callback(interaction, r=role):
-                await self.join_role(interaction, r)
-
-            button.callback = callback
-            self.add_item(button)
-
-
-async def update_party_message(party, guild):
-    channel = guild.get_channel(party["channel_id"])
+async def update_party_message(party):
+    channel = bot.get_channel(party["channel_id"])
     message = await channel.fetch_message(party["message_id"])
-    embed = build_embed(party, guild)
-    view = PartyView(party_id)
+    embed = build_embed(party)
+    view = PartyView(party["id"])
     await message.edit(embed=embed, view=view)
 
 
@@ -258,9 +245,8 @@ async def lfp(
     active_parties[party_id] = party
     user_party_map[interaction.user.id] = party_id
 
-    embed = build_embed(party, interaction.guild)
+    embed = build_embed(party)
     view = PartyView(party_id)
-    view.generate_buttons()
 
     message = await interaction.followup.send(embed=embed, view=view)
     party["message_id"] = message.id
@@ -268,6 +254,7 @@ async def lfp(
 
 @tree.command(name="leave", description="Leave your current party")
 async def leave(interaction: discord.Interaction):
+
     if interaction.user.id not in user_party_map:
         await interaction.response.send_message(
             "You are not in a party.",
@@ -300,7 +287,7 @@ async def leave(interaction: discord.Interaction):
     del party["members"][interaction.user.id]
     del user_party_map[interaction.user.id]
 
-    await update_party_message(party, interaction.guild)
+    await update_party_message(party)
     await interaction.response.send_message(
         "You left the party.",
         ephemeral=True
@@ -309,6 +296,7 @@ async def leave(interaction: discord.Interaction):
 
 @tree.command(name="close", description="Close your party (leader only)")
 async def close(interaction: discord.Interaction):
+
     if interaction.user.id not in user_party_map:
         await interaction.response.send_message(
             "You are not in a party.",
@@ -343,7 +331,7 @@ async def close(interaction: discord.Interaction):
 
 @bot.event
 async def on_ready():
-    GUILD_ID = 1149113323200200825
+    GUILD_ID = 1149113323200200825  # your server ID
     await tree.sync(guild=discord.Object(id=GUILD_ID))
     print(f"Logged in as {bot.user}")
 
