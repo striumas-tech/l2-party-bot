@@ -1,1 +1,1 @@
-discord.py==2.4.0 --no-binary :all:
+nextcord==2.6.0
