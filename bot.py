@@ -290,15 +290,8 @@ async def lfp(
 @bot.event
 async def on_ready():
     guild = discord.Object(id=GUILD_ID)
-
-    # Clear ALL global commands
-    await tree.sync()
-
-    # Clear ALL guild commands
-    tree.clear_commands(guild=guild)
     await tree.sync(guild=guild)
-
-    print("Commands cleaned.")
+    print(f"Logged in as {bot.user}")
 
 
 bot.run(TOKEN)
