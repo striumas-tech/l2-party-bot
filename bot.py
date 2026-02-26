@@ -152,12 +152,40 @@ class LeaveButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
 
-        if interaction.user.id not in user_party_map:
-            await interaction.response.send_message(
-                "You are not in this party.",
-                ephemeral=True
-            )
-            return
+    party = active_parties.get(self.party_id)
+    if not party:
+        await interaction.response.send_message(
+            "Party not found.",
+            ephemeral=True
+        )
+        return
+
+    if interaction.user.id not in user_party_map:
+        await interaction.response.send_message(
+            "You are not in this party.",
+            ephemeral=True
+        )
+        return
+
+    # Acknowledge interaction immediately
+    await interaction.response.defer()
+
+    # Leader leaving closes party
+    if interaction.user.id == party["leader_id"]:
+        await interaction.message.delete()
+        del active_parties[self.party_id]
+        for uid in list(user_party_map):
+            if user_party_map[uid] == self.party_id:
+                del user_party_map[uid]
+        return
+
+    del party["members"][interaction.user.id]
+    del user_party_map[interaction.user.id]
+
+    embed = build_embed(party)
+    view = PartyView(self.party_id)
+
+    await interaction.message.edit(embed=embed, view=view)
 
         party = active_parties.get(self.party_id)
 
@@ -186,14 +214,23 @@ class CloseButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
 
-        party = active_parties.get(self.party_id)
+    party = active_parties.get(self.party_id)
 
-        if not party or interaction.user.id != party["leader_id"]:
-            await interaction.response.send_message(
-                "Only leader can close the party.",
-                ephemeral=True
-            )
-            return
+    if not party or interaction.user.id != party["leader_id"]:
+        await interaction.response.send_message(
+            "Only leader can close the party.",
+            ephemeral=True
+        )
+        return
+
+    await interaction.response.defer()
+
+    await interaction.message.delete()
+
+    del active_parties[self.party_id]
+    for uid in list(user_party_map):
+        if user_party_map[uid] == self.party_id:
+            del user_party_map[uid]
 
         await close_party(self.party_id, interaction)
 
