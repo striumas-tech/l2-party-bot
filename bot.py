@@ -34,7 +34,7 @@ ROLE_DATA = {
     "se": {"icon": "✨", "name": "Shillien Elder"},
     "ee": {"icon": "✨", "name": "Elven Elder"},
     "bs": {"icon": "✨", "name": "Bishop"},
-    "dd": {"icon": "⚔️", "name": "Destroyer"},
+    "dd": {"icon": "⚔️", "name": "DD"},
     "mage": {"icon": "🔥", "name": "Mage"},
     "sum": {"icon": "🐺", "name": "Summoner"},
     "spoil": {"icon": "💰", "name": "Spoiler"},
@@ -42,18 +42,23 @@ ROLE_DATA = {
 
 # ================= UTILITIES =================
 
-def parse_local_time(time_str: str):
+def parse_user_time(time_str: str, interaction: discord.Interaction):
     if not re.match(r"^\d{2}:\d{2}$", time_str):
         return None
 
     hour, minute = map(int, time_str.split(":"))
-    now = datetime.now()
+
+    # Use interaction time (already timezone aware)
+    now = interaction.created_at  # UTC aware datetime
+
+    # Convert to user's local time assumption
     start = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
+    # If that time already passed today, schedule tomorrow
     if start <= now:
         start += timedelta(days=1)
 
-    return start.astimezone(timezone.utc)
+    return start
 
 
 def progress_bar(current, total, length=14):
@@ -284,7 +289,7 @@ async def lfp(
     dd: int = 0, mage: int = 0, sum: int = 0, spoil: int = 0,
 ):
 
-    start_time = parse_local_time(time)
+    start_time = parse_user_time(time, interaction)
     if not start_time:
         await interaction.response.send_message("Invalid time (HH:MM).", ephemeral=True)
         return
