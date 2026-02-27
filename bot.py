@@ -82,7 +82,7 @@ def build_embed(party):
     # ===== TIME BLOCK =====
     embed.add_field(
         name="⏱ RAID TIMER",
-        value=f"🕒 **<t:{start_ts}:t> UTC**\n⏳ <t:{start_ts}:R>",
+        value=f"🕒 **<t:{start_ts}:t>**\n⏳ <t:{start_ts}:R>",
         inline=False
     )
 
