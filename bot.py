@@ -1,3 +1,6 @@
+import asyncpg
+import os
+from zoneinfo import ZoneInfo, available_timezones
 import os
 import re
 import asyncio
@@ -22,6 +25,9 @@ tree = app_commands.CommandTree(bot)
 active_parties: Dict[str, dict] = {}
 user_party_map: Dict[int, str] = {}
 zone_counters: Dict[str, int] = {}
+
+db_pool = None
+ALL_TIMEZONES = sorted(available_timezones())
 
 # ================= ROLE DATA =================
 
