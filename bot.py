@@ -82,7 +82,7 @@ def progress_bar(current, total, length=14):
     return "█" * filled + "░" * (length - filled)
 
 def party_capacity(party):
-    return 1 + sum(party["roles_required"].values())
+    return MAX_PARTY_SIZE
 
 def generate_party_id(zone: str):
     zone_key = zone.upper()
