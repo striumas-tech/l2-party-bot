@@ -395,17 +395,11 @@ async def settimezone(
 async def on_ready():
     global db_pool
 
-    # Connect to Railway PostgreSQL
     db_pool = await asyncpg.create_pool(
-    host=os.getenv("PGHOST"),
-    port=os.getenv("PGPORT"),
-    user=os.getenv("PGUSER"),
-    password=os.getenv("PGPASSWORD"),
-    database=os.getenv("PGDATABASE"),
-    ssl="require"
-)
+        os.getenv("DATABASE_URL"),
+        ssl="require"
+    )
 
-    # Create table automatically if not exists
     async with db_pool.acquire() as conn:
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS user_timezones (
