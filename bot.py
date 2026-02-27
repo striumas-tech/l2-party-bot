@@ -165,8 +165,12 @@ class PartyView(discord.ui.View):
         if not party:
             return
 
-        for role in party["roles_required"]:
-            self.add_item(JoinButton(party_id, role))
+        for role, required in party["roles_required"].items():
+            filled = sum(1 for r in party["members"].values() if r == role)
+
+            # Only show button if role is not full
+            if filled < required:
+                self.add_item(JoinButton(party_id, role))
 
         self.add_item(LeaveButton(party_id))
         self.add_item(CloseButton(party_id))
