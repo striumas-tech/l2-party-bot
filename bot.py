@@ -47,38 +47,101 @@ def party_current_count(party):
     return len(party["members"])
 
 
+from datetime import datetime, timezone
+
+def progress_bar(current, total, length=12):
+    filled = int(length * current / total) if total > 0 else 0
+    return "█" * filled + "░" * (length - filled)
+
 def build_embed(party):
+    now = datetime.now(timezone.utc)
+    start_ts = int(party["start_time"].timestamp())
+
+    total_slots = sum(party["roles_required"].values()) + 1
+    current_members = len(party["members"])
+
+    # ===== STATUS SYSTEM =====
+    if current_members >= total_slots:
+        status = "🟣 FULL"
+        color = discord.Color.purple()
+    elif now >= party["start_time"]:
+        status = "🔴 STARTED"
+        color = discord.Color.red()
+    elif (party["start_time"] - now).total_seconds() <= 600:
+        status = "🟠 FORMING (SOON)"
+        color = discord.Color.orange()
+    else:
+        status = "🟢 RECRUITING"
+        color = discord.Color.green()
+
     embed = discord.Embed(
-        title=f"Party #{party['id']} – {party['zone']}",
-        color=discord.Color.green()
+        title=f"⚔️ {party['zone'].upper()} RAID LOBBY",
+        color=color
     )
 
+    # ===== TIME BLOCK =====
     embed.add_field(
-        name="Start Time",
-        value=party["start_time"].strftime("%H:%M UTC"),
+        name="⏱ RAID TIMER",
+        value=f"🕒 **<t:{start_ts}:t> UTC**\n⏳ <t:{start_ts}:R>",
         inline=False
     )
 
+    # ===== LEADER BLOCK =====
     embed.add_field(
-        name="Leader",
-        value=f"<@{party['leader_id']}> ({party['leader_class']})",
+        name="👑 RAID LEADER",
+        value=f"<@{party['leader_id']}>  •  **{party['leader_class'].upper()}**",
         inline=False
     )
 
-    roles_text = ""
-    for role, count in party["roles_required"].items():
-        filled = sum(1 for r in party["members"].values() if r == role)
-        roles_text += f"{role.upper()} ({filled}/{count})\n"
+    # ===== ROLE SECTION =====
+    support_roles = ["wc", "pp", "bd", "sws", "se", "ee", "bs"]
+    dps_roles = ["destro", "dd", "spoil"]
+    misc_roles = ["leacher", "random"]
 
-    embed.add_field(name="Roles", value=roles_text or "None", inline=False)
+    def role_section(role_list, title):
+        text = ""
+        for role in role_list:
+            if role in party["roles_required"]:
+                required = party["roles_required"][role]
+                filled = sum(1 for r in party["members"].values() if r == role)
+                mark = "✔️" if filled >= required else "❌"
+                text += f"{mark} **{role.upper():<8}** `{filled}/{required}`\n"
+        return text if text else "—"
+
     embed.add_field(
-        name="Total",
-        value=f"{party_current_count(party)}/{party_total_slots(party)}",
+        name="🛡 SUPPORT",
+        value=role_section(support_roles, "SUPPORT"),
         inline=True
     )
 
-    return embed
+    embed.add_field(
+        name="⚔️ DPS",
+        value=role_section(dps_roles, "DPS"),
+        inline=True
+    )
 
+    embed.add_field(
+        name="🎲 OTHER",
+        value=role_section(misc_roles, "OTHER"),
+        inline=True
+    )
+
+    # ===== PROGRESS =====
+    embed.add_field(
+        name="📊 RAID CAPACITY",
+        value=f"`{progress_bar(current_members, total_slots)}`\n**{current_members}/{total_slots} Members**",
+        inline=False
+    )
+
+    embed.add_field(
+        name="📌 STATUS",
+        value=f"**{status}**",
+        inline=False
+    )
+
+    embed.set_footer(text="Lineage II Hardcore Raid System • UTC Based")
+
+    return embed
 
 def check_cooldown(user_id: int):
     now = time.time()
