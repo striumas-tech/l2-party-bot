@@ -233,6 +233,7 @@ async def lfp(
     time: str,
     leader_class: Choice[str],
     wc: int = 0,
+    destro: int = 0,
     pp: int = 0,
     bd: int = 0,
     sws: int = 0,
@@ -258,6 +259,7 @@ async def lfp(
         k: v for k, v in {
             "wc": wc,
             "pp": pp,
+            "destro": destro,
             "bd": bd,
             "sws": sws,
             "se": se,
