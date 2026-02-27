@@ -317,8 +317,8 @@ async def lfp(
         view=PartyView(party_id)
     )
 
-sent = await interaction.original_response()
-party["message_id"] = sent.id
+    sent = await interaction.original_response()
+    party["message_id"] = sent.id
 
 async def party_scheduler():
     await bot.wait_until_ready()
