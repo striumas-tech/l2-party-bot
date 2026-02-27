@@ -94,8 +94,10 @@ def build_embed(party):
     now = datetime.now(timezone.utc)
     start_ts = int(party["start_time"].timestamp())
 
+    requested_total = sum(party["roles_required"].values())
+total = requested_total + 1  # + leader
     current = len(party["members"])
-    total = party_capacity(party)
+    
 
     if current >= total:
         status = "🟣 FULL"
@@ -111,7 +113,7 @@ def build_embed(party):
         color = discord.Color.green()
 
     embed = discord.Embed(
-        title=f"⚔️ {party['party_id']} | {party['zone'].upper()}",
+        title=f"⚔ {party['zone'].upper()} RAID LOBBY",
         color=color
     )
 
@@ -143,10 +145,15 @@ def build_embed(party):
                 text += f"{mark} {icon} **{role.upper():<8}** `{filled}/{required}`\n"
         return text if text else "—"
 
-    embed.add_field(name="🛡 TANKS", value=build_section(tank_roles), inline=True)
-    embed.add_field(name="🧩 SUPPORT", value=build_section(support_roles), inline=True)
-    embed.add_field(name="⚔️ DPS", value=build_section(dps_roles), inline=True)
-    embed.add_field(name="🎲 OTHER", value=build_section(misc_roles), inline=True)
+    def add_section(title, roles):
+    section_text = build_section(roles)
+    if section_text != "—":
+        embed.add_field(name=title, value=section_text, inline=True)
+
+add_section("🛡 TANKS", tank_roles)
+add_section("🧩 SUPPORT", support_roles)
+add_section("⚔️ DPS", dps_roles)
+add_section("🎲 OTHER", misc_roles)
 
     embed.add_field(
         name="📊 PARTY CAPACITY",
