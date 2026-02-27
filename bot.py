@@ -388,7 +388,7 @@ async def party_scheduler():
                             del user_party_map[uid]
 
                     await channel.send(
-                        f"❌ **{zone} expired (30 minutes passed).**"
+                        f"❌ **{party['zone'].upper()} PARTY expired (30 minutes passed).**"
                     )
                     continue
 
