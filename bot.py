@@ -1,9 +1,8 @@
 import os
 import re
-import time
 import asyncio
 from datetime import datetime, timedelta, timezone
-import re
+from typing import Dict
 
 import discord
 from discord import app_commands
@@ -13,48 +12,42 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 GUILD_ID = 1149113323200200825
 
 intents = discord.Intents.default()
+intents.members = True
+
 bot = discord.Client(intents=intents)
 tree = app_commands.CommandTree(bot)
 
-# =========================
-# STORAGE
-# =========================
+# ================= STORAGE =================
 
 active_parties: Dict[str, dict] = {}
 user_party_map: Dict[int, str] = {}
 zone_counters: Dict[str, int] = {}
-button_cooldowns: Dict[int, float] = {}
 
-# =========================
-# ROLE ICONS
-# =========================
+# ================= ROLE DATA =================
 
-ROLE_ICONS = {
-    "tank": "🛡",
-    "wc": "📜",
-    "pp": "📜",
-    "bd": "💃",
-    "sws": "🎼",
-    "se": "✨",
-    "ee": "✨",
-    "bs": "✨",
-    "dd": "⚔️",
-    "mage": "🔥",
-    "sum": "🐺",
-    "spoil": "💰",
+ROLE_DATA = {
+    "tank": {"icon": "🛡", "name": "Tank"},
+    "wc": {"icon": "📜", "name": "Warcryer"},
+    "pp": {"icon": "📜", "name": "Prophet"},
+    "bd": {"icon": "💃", "name": "Bladedancer"},
+    "sws": {"icon": "🎼", "name": "Sword Singer"},
+    "se": {"icon": "✨", "name": "Shillien Elder"},
+    "ee": {"icon": "✨", "name": "Elven Elder"},
+    "bs": {"icon": "✨", "name": "Bishop"},
+    "dd": {"icon": "⚔️", "name": "Destroyer"},
+    "mage": {"icon": "🔥", "name": "Mage"},
+    "sum": {"icon": "🐺", "name": "Summoner"},
+    "spoil": {"icon": "💰", "name": "Spoiler"},
 }
 
-# =========================
-# UTILITIES
-# =========================
+# ================= UTILITIES =================
 
 def parse_local_time(time_str: str):
     if not re.match(r"^\d{2}:\d{2}$", time_str):
         return None
 
     hour, minute = map(int, time_str.split(":"))
-
-    now = datetime.now()  # local machine time
+    now = datetime.now()
     start = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
     if start <= now:
@@ -76,16 +69,13 @@ def generate_party_id(zone: str):
     return f"{zone}-{zone_counters[zone]:02d}"
 
 
-# =========================
-# EMBED
-# =========================
+# ================= EMBED =================
 
 def build_embed(party):
     now = datetime.now(timezone.utc)
     start_ts = int(party["start_time"].timestamp())
 
     requested_total = sum(party["roles_required"].values())
-
     if party["leader_class"] in party["roles_required"]:
         total = requested_total
     else:
@@ -117,44 +107,48 @@ def build_embed(party):
         inline=False
     )
 
+    leader_member = party["guild"].get_member(party["leader_id"])
+    leader_name = leader_member.display_name if leader_member else "Unknown"
+
     embed.add_field(
         name="👑 LEADER",
-        value=f"<@{party['leader_id']}> • **{party['leader_class'].upper()}**",
+        value=f"{leader_name} • {ROLE_DATA[party['leader_class']]['name']}",
         inline=False
     )
 
- for title, roles in groups.items():
-    section_text = ""
+    groups = {
+        "🛡 TANK": ["tank"],
+        "🧩 SUPPORT": ["wc", "pp", "bd", "sws", "se", "ee", "bs"],
+        "⚔️ DPS": ["dd", "mage", "sum", "spoil"],
+    }
 
-    for role in roles:
-        if role in party["roles_required"]:
-            required = party["roles_required"][role]
+    for title, roles in groups.items():
+        section_text = ""
 
-            # members with this role
-            role_members = [
-                uid for uid, r in party["members"].items() if r == role
-            ]
+        for role in roles:
+            if role in party["roles_required"]:
+                required = party["roles_required"][role]
+                role_members = [
+                    uid for uid, r in party["members"].items() if r == role
+                ]
 
-            filled = len(role_members)
+                filled = len(role_members)
+                mark = "🟢" if filled >= required else "❌"
 
-            mark = "🟢" if filled >= required else "❌"
-            icon = ROLE_DATA[role]["icon"]
-            name = ROLE_DATA[role]["name"]
+                icon = ROLE_DATA[role]["icon"]
+                name = ROLE_DATA[role]["name"]
 
-            section_text += f"{mark} {icon} **{name}** `{filled}/{required}`\n"
+                section_text += f"{mark} {icon} **{name}** `{filled}/{required}`\n"
 
-            # Show usernames WITHOUT ping
-            for uid in role_members:
-                member = party["guild"].get_member(uid)
-                if member:
-                    section_text += f" • {member.display_name}\n"
-                else:
-                    section_text += f" • Unknown\n"
+                for uid in role_members:
+                    member = party["guild"].get_member(uid)
+                    if member:
+                        section_text += f" • {member.display_name}\n"
 
-            section_text += "\n"
+                section_text += "\n"
 
-    if section_text:
-        embed.add_field(name=title, value=section_text, inline=False)
+        if section_text:
+            embed.add_field(name=title, value=section_text, inline=False)
 
     embed.add_field(
         name="📊 PARTY CAPACITY",
@@ -167,12 +161,10 @@ def build_embed(party):
     return embed
 
 
-# =========================
-# BUTTONS
-# =========================
+# ================= BUTTONS =================
 
 class PartyView(discord.ui.View):
-    def __init__(self, party_id, viewer_id=None):
+    def __init__(self, party_id):
         super().__init__(timeout=None)
         self.party_id = party_id
 
@@ -180,7 +172,6 @@ class PartyView(discord.ui.View):
         if not party:
             return
 
-        # Join buttons
         for role, required in party["roles_required"].items():
             filled = sum(1 for r in party["members"].values() if r == role)
             if filled < required:
@@ -189,13 +180,12 @@ class PartyView(discord.ui.View):
         self.add_item(LeaveButton(party_id))
 
         # Only leader sees Cancel
-        if viewer_id == party["leader_id"]:
-            self.add_item(CancelButton(party_id))
+        self.add_item(CancelButton(party_id))
 
 
 class JoinButton(discord.ui.Button):
     def __init__(self, party_id, role):
-        super().__init__(label=f"Join {role.upper()}", style=discord.ButtonStyle.primary)
+        super().__init__(label=f"Join {ROLE_DATA[role]['name']}", style=discord.ButtonStyle.primary)
         self.party_id = party_id
         self.role = role
 
@@ -216,7 +206,7 @@ class JoinButton(discord.ui.Button):
 
         await interaction.message.edit(
             embed=build_embed(party),
-            view=PartyView(party_id, interaction.user.id)
+            view=PartyView(self.party_id)
         )
 
 
@@ -263,13 +253,12 @@ class CancelButton(discord.ui.Button):
 
         if interaction.user.id != party["leader_id"]:
             await interaction.response.send_message(
-                "Only leader can cancel.",
+                "Only party leader can cancel.",
                 ephemeral=True
             )
             return
 
         await interaction.response.defer()
-
         await interaction.message.delete()
 
         del active_parties[self.party_id]
@@ -278,13 +267,11 @@ class CancelButton(discord.ui.Button):
                 del user_party_map[uid]
 
 
-# =========================
-# SLASH COMMAND
-# =========================
+# ================= SLASH COMMAND =================
 
 @tree.command(name="lfp", description="Create party", guild=discord.Object(id=GUILD_ID))
 @app_commands.choices(
-    leader_class=[Choice(name=k.upper(), value=k) for k in ROLE_ICONS.keys()]
+    leader_class=[Choice(name=v["name"], value=k) for k, v in ROLE_DATA.items()]
 )
 async def lfp(
     interaction: discord.Interaction,
@@ -299,7 +286,7 @@ async def lfp(
 
     start_time = parse_local_time(time)
     if not start_time:
-        await interaction.response.send_message("Invalid time format (HH:MM).", ephemeral=True)
+        await interaction.response.send_message("Invalid time (HH:MM).", ephemeral=True)
         return
 
     roles_required = {
@@ -334,71 +321,11 @@ async def lfp(
         view=PartyView(party_id)
     )
 
-    sent = await interaction.original_response()
-    party["message_id"] = sent.id
-
-
-# =========================
-# SCHEDULER
-# =========================
-
-async def party_scheduler():
-    await bot.wait_until_ready()
-
-    while not bot.is_closed():
-        now = datetime.now(timezone.utc)
-
-        for party_id, party in list(active_parties.items()):
-
-            channel = bot.get_channel(party["channel_id"])
-            if not channel:
-                continue
-
-            start = party["start_time"]
-
-            # 10 min reminder
-            if not party["reminded"]:
-                seconds_left = (start - now).total_seconds()
-                if 0 < seconds_left <= 600:
-                    mentions = " ".join(f"<@{uid}>" for uid in party["members"])
-                    await channel.send(
-                        f"⏰ **{party['zone'].upper()} PARTY starts in 10 minutes!**\n{mentions}"
-                    )
-                    party["reminded"] = True
-
-            # 30 min expire
-            if now > start and (now - start).total_seconds() >= 1800:
-                try:
-                    msg = await channel.fetch_message(party["message_id"])
-                    await msg.delete()
-                except:
-                    pass
-
-                del active_parties[party_id]
-                for uid in list(user_party_map):
-                    if user_party_map[uid] == party_id:
-                        del user_party_map[uid]
-
-                await channel.send(
-                    f"❌ **{party['zone'].upper()} PARTY expired (30 minutes passed).**"
-                )
-                continue
-
-            # auto update embed color
-            try:
-                msg = await channel.fetch_message(party["message_id"])
-                await msg.edit(embed=build_embed(party), view=PartyView(party_id, party["leader_id"])
-            except:
-                pass
-
-        await asyncio.sleep(30)
-
+# ================= READY =================
 
 @bot.event
 async def on_ready():
     await tree.sync(guild=discord.Object(id=GUILD_ID))
-    bot.loop.create_task(party_scheduler())
     print(f"Logged in as {bot.user}")
-
 
 bot.run(TOKEN)
