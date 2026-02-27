@@ -114,7 +114,7 @@ def build_embed(party):
         color = discord.Color.green()
 
     embed = discord.Embed(
-        title=f"⚔ {party['zone'].upper()} RAID LOBBY",
+        title=f"⚔ {party['zone'].upper()} PARTY LOBBY",
         color=color
     )
 
@@ -172,8 +172,7 @@ def build_embed(party):
         inline=False
     )
 
-    embed.set_footer(text=f"Party ID: {party['party_id']}")
-
+   
     return embed
 # ==================================================
 # BUTTONS
@@ -359,7 +358,7 @@ async def party_scheduler():
                 if 0 < seconds_left <= 600:
                     mentions = " ".join(f"<@{uid}>" for uid in party["members"])
                     await channel.send(
-                        f"⏰ **{party['party_id']} starts in 10 minutes!**\n{mentions}"
+                        f"⏰ **{party['zone']} PARTY starts in 10 minutes!**\n{mentions}"
                     )
                     party["reminded"] = True
 
@@ -383,7 +382,7 @@ async def party_scheduler():
                             del user_party_map[uid]
 
                     await channel.send(
-                        f"❌ **{party_id} expired (30 minutes passed).**"
+                        f"❌ **{zone} expired (30 minutes passed).**"
                     )
                     continue
 
