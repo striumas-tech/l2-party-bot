@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import asyncio
 from datetime import datetime, timezone
 from typing import Dict
 
@@ -9,7 +10,7 @@ from discord import app_commands
 from discord.app_commands import Choice
 
 TOKEN = os.getenv("DISCORD_TOKEN")
-GUILD_ID = 1149113323200200825  # change if needed
+GUILD_ID = 1149113323200200825  # your server ID
 
 intents = discord.Intents.default()
 bot = discord.Client(intents=intents)
@@ -25,7 +26,7 @@ party_counter = 100
 
 
 # =========================
-# Utilities
+# Utility
 # =========================
 
 def parse_utc_time(time_str: str):
@@ -82,10 +83,8 @@ def build_embed(party):
 def check_cooldown(user_id: int):
     now = time.time()
     last = button_cooldowns.get(user_id, 0)
-
     if now - last < 2:
         return False
-
     button_cooldowns[user_id] = now
     return True
 
@@ -122,25 +121,16 @@ class JoinButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
 
         if not check_cooldown(interaction.user.id):
-            await interaction.response.send_message(
-                "Slow down (2s cooldown).",
-                ephemeral=True
-            )
+            await interaction.response.send_message("Slow down (2s cooldown).", ephemeral=True)
             return
 
         party = active_parties.get(self.party_id)
         if not party:
-            await interaction.response.send_message(
-                "Party no longer exists.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("Party no longer exists.", ephemeral=True)
             return
 
         if interaction.user.id in user_party_map:
-            await interaction.response.send_message(
-                "You are already in a party.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("You are already in a party.", ephemeral=True)
             return
 
         await interaction.response.defer()
@@ -150,7 +140,6 @@ class JoinButton(discord.ui.Button):
 
         embed = build_embed(party)
         view = PartyView(self.party_id)
-
         await interaction.message.edit(embed=embed, view=view)
 
 
@@ -162,25 +151,16 @@ class LeaveButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
 
         if not check_cooldown(interaction.user.id):
-            await interaction.response.send_message(
-                "Slow down (2s cooldown).",
-                ephemeral=True
-            )
+            await interaction.response.send_message("Slow down (2s cooldown).", ephemeral=True)
             return
 
         party = active_parties.get(self.party_id)
         if not party:
-            await interaction.response.send_message(
-                "Party not found.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("Party not found.", ephemeral=True)
             return
 
         if interaction.user.id not in user_party_map:
-            await interaction.response.send_message(
-                "You are not in this party.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("You are not in this party.", ephemeral=True)
             return
 
         await interaction.response.defer()
@@ -198,7 +178,6 @@ class LeaveButton(discord.ui.Button):
 
         embed = build_embed(party)
         view = PartyView(self.party_id)
-
         await interaction.message.edit(embed=embed, view=view)
 
 
@@ -210,24 +189,17 @@ class CloseButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
 
         if not check_cooldown(interaction.user.id):
-            await interaction.response.send_message(
-                "Slow down (2s cooldown).",
-                ephemeral=True
-            )
+            await interaction.response.send_message("Slow down (2s cooldown).", ephemeral=True)
             return
 
         party = active_parties.get(self.party_id)
         if not party or interaction.user.id != party["leader_id"]:
-            await interaction.response.send_message(
-                "Only leader can close.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("Only leader can close.", ephemeral=True)
             return
 
         await interaction.response.defer()
 
         await interaction.message.delete()
-
         del active_parties[self.party_id]
         for uid in list(user_party_map):
             if user_party_map[uid] == self.party_id:
@@ -260,7 +232,6 @@ async def lfp(
     zone: str,
     time: str,
     leader_class: Choice[str],
-
     wc: int = 0,
     pp: int = 0,
     bd: int = 0,
@@ -268,7 +239,6 @@ async def lfp(
     se: int = 0,
     ee: int = 0,
     bs: int = 0,
-
     dd: int = 0,
     spoil: int = 0,
     leacher: int = 0,
@@ -276,18 +246,12 @@ async def lfp(
 ):
 
     if interaction.user.id in user_party_map:
-        await interaction.response.send_message(
-            "You are already in a party.",
-            ephemeral=True
-        )
+        await interaction.response.send_message("You are already in a party.", ephemeral=True)
         return
 
     start_time = parse_utc_time(time)
     if not start_time:
-        await interaction.response.send_message(
-            "Invalid time format (HH:MM UTC).",
-            ephemeral=True
-        )
+        await interaction.response.send_message("Invalid time format (HH:MM UTC).", ephemeral=True)
         return
 
     roles_required = {
@@ -307,10 +271,7 @@ async def lfp(
     }
 
     if sum(roles_required.values()) + 1 > MAX_PARTY_SIZE:
-        await interaction.response.send_message(
-            "Party exceeds 9 members.",
-            ephemeral=True
-        )
+        await interaction.response.send_message("Party exceeds 9 members.", ephemeral=True)
         return
 
     global party_counter
@@ -318,17 +279,17 @@ async def lfp(
     party_id = party_counter
 
     party = {
-    "id": party_id,
-    "zone": zone,
-    "leader_id": interaction.user.id,
-    "leader_class": leader_class.value,
-    "start_time": start_time,
-    "roles_required": roles_required,
-    "members": {interaction.user.id: leader_class.value},
-    "message_id": None,
-    "channel_id": interaction.channel.id,
-    "reminded": False
-}
+        "id": party_id,
+        "zone": zone,
+        "leader_id": interaction.user.id,
+        "leader_class": leader_class.value,
+        "start_time": start_time,
+        "roles_required": roles_required,
+        "members": {interaction.user.id: leader_class.value},
+        "message_id": None,
+        "channel_id": interaction.channel.id,
+        "reminded": False
+    }
 
     active_parties[party_id] = party
     user_party_map[interaction.user.id] = party_id
@@ -338,9 +299,13 @@ async def lfp(
 
     await interaction.response.send_message(embed=embed, view=view)
 
-sent = await interaction.original_response()
-party["message_id"] = sent.id
-party["channel_id"] = interaction.channel.id
+    sent = await interaction.original_response()
+    party["message_id"] = sent.id
+
+
+# =========================
+# Background Scheduler
+# =========================
 
 async def party_scheduler():
     await bot.wait_until_ready()
@@ -353,24 +318,24 @@ async def party_scheduler():
             if not party:
                 continue
 
-            start = party["start_time"]
             channel = bot.get_channel(party["channel_id"])
-
             if not channel:
                 continue
 
-            # 10 MINUTE REMINDER
-            if not party["reminded"] and start.timestamp() - now.timestamp() <= 600 and start > now:
+            start = party["start_time"]
+
+            # 10 minute reminder
+            if not party["reminded"] and 0 < (start - now).total_seconds() <= 600:
                 mentions = " ".join([f"<@{uid}>" for uid in party["members"]])
                 await channel.send(f"⏰ Party starts in 10 minutes!\n{mentions}")
                 party["reminded"] = True
 
-            # 30 MINUTE EXPIRE IF NOT FULL
+            # 30 minute expire if not full
             if now > start and (now - start).total_seconds() >= 1800:
                 if party_current_count(party) < party_total_slots(party):
                     try:
-                        message = await channel.fetch_message(party["message_id"])
-                        await message.delete()
+                        msg = await channel.fetch_message(party["message_id"])
+                        await msg.delete()
                     except:
                         pass
 
@@ -379,9 +344,7 @@ async def party_scheduler():
                         if user_party_map[uid] == party_id:
                             del user_party_map[uid]
 
-        await discord.utils.sleep_until(
-            datetime.now(timezone.utc) + discord.utils.timedelta(seconds=60)
-        )
+        await asyncio.sleep(60)
 
 
 @bot.event
