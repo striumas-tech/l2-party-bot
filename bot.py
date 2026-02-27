@@ -29,10 +29,7 @@ button_cooldowns: Dict[int, float] = {}
 
 ROLE_ICONS = {
     # Tanks
-    "tk": "🛡",
-    "sk": "🛡",
-    "da": "🛡",
-    "pal": "🛡",
+    "tank": "🛡",
 
     # Buffers
     "wc": "📜",
@@ -130,7 +127,7 @@ def build_embed(party):
         inline=False
     )
 
-    tank_roles = ["tk", "sk", "da", "pal"]
+    tank_roles = ["tank"]
     support_roles = ["wc", "pp", "bd", "sws", "se", "ee", "bs"]
     dps_roles = ["destro", "dd", "spoil"]
     misc_roles = ["leacher", "random"]
@@ -276,7 +273,7 @@ async def lfp(
     zone: str,
     time: str,
     leader_class: Choice[str],
-    tk: int = 0, sk: int = 0, da: int = 0, pal: int = 0,
+    tank: int = 0,
     wc: int = 0, pp: int = 0, bd: int = 0, sws: int = 0,
     se: int = 0, ee: int = 0, bs: int = 0,
     destro: int = 0, dd: int = 0, spoil: int = 0,
@@ -290,7 +287,7 @@ async def lfp(
 
     roles_required = {
         k: v for k, v in {
-            "tk": tk, "sk": sk, "da": da, "pal": pal,
+            "tank": tank, 
             "wc": wc, "pp": pp, "bd": bd, "sws": sws,
             "se": se, "ee": ee, "bs": bs,
             "destro": destro, "dd": dd, "spoil": spoil,
@@ -320,6 +317,9 @@ async def lfp(
         view=PartyView(party_id)
     )
 
+sent = await interaction.original_response()
+party["message_id"] = sent.id
+
 async def party_scheduler():
     await bot.wait_until_ready()
 
@@ -332,9 +332,13 @@ async def party_scheduler():
             if not channel:
                 continue
 
-            # 10 minute reminder
+            start = party["start_time"]
+
+            # =========================
+            # 10 MINUTE REMINDER
+            # =========================
             if not party.get("reminded"):
-                seconds_left = (party["start_time"] - now).total_seconds()
+                seconds_left = (start - now).total_seconds()
                 if 0 < seconds_left <= 600:
                     mentions = " ".join(f"<@{uid}>" for uid in party["members"])
                     await channel.send(
@@ -342,10 +346,36 @@ async def party_scheduler():
                     )
                     party["reminded"] = True
 
-            # Update embed color/status automatically
+            # =========================
+            # 30 MINUTE AUTO EXPIRE
+            # =========================
+            if now > start:
+                seconds_since_start = (now - start).total_seconds()
+
+                if seconds_since_start >= 1800:  # 30 minutes
+                    try:
+                        msg = await channel.fetch_message(party["message_id"])
+                        await msg.delete()
+                    except:
+                        pass
+
+                    del active_parties[party_id]
+
+                    for uid in list(user_party_map):
+                        if user_party_map[uid] == party_id:
+                            del user_party_map[uid]
+
+                    await channel.send(
+                        f"❌ **{party_id} expired (30 minutes passed).**"
+                    )
+                    continue
+
+            # =========================
+            # AUTO UPDATE EMBED COLOR
+            # =========================
             try:
-                message = await channel.fetch_message(party["message_id"])
-                await message.edit(
+                msg = await channel.fetch_message(party["message_id"])
+                await msg.edit(
                     embed=build_embed(party),
                     view=PartyView(party_id)
                 )
