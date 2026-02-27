@@ -317,23 +317,23 @@ async def lfp(
     start_time = await parse_user_time(time, interaction)
     if not start_time:
         await interaction.response.send_message(
-    "Invalid time or you must set timezone first using /settimezone",
-    ephemeral=True
-)
+            "Invalid time or you must set timezone first using /settimezone",
+            ephemeral=True
+        )
         return
 
- roles_input = {
-    "tank": tank,
-    "wc": wc, "pp": pp, "bd": bd, "sws": sws,
-    "se": se, "ee": ee, "bs": bs,
-    "dd": dd, "mage": mage, "sum": sum, "spoil": spoil,
-}
+    roles_input = {
+        "tank": tank,
+        "wc": wc, "pp": pp, "bd": bd, "sws": sws,
+        "se": se, "ee": ee, "bs": bs,
+        "dd": dd, "mage": mage, "sum": sum, "spoil": spoil,
+    }
 
-roles_required = {k: v for k, v in roles_input.items() if v > 0}
+    roles_required = {k: v for k, v in roles_input.items() if v > 0}
 
-# Ensure leader role is always present
-if leader_class.value not in roles_required:
-    roles_required[leader_class.value] = 1
+    # Ensure leader role is always present
+    if leader_class.value not in roles_required:
+        roles_required[leader_class.value] = 1
 
     party_id = generate_party_id(zone)
 
