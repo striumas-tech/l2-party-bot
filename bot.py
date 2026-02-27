@@ -343,7 +343,7 @@ async def party_scheduler():
                 if 0 < seconds_left <= 600:
                     mentions = " ".join(f"<@{uid}>" for uid in party["members"])
                     await channel.send(
-                        f"⏰ **{party['zone'].upper()} PARTY LOBBY starts in 10 minutes!**\n{mentions}"
+                        f"⏰ **{party['zone'].upper()} PARTY starts in 10 minutes!**\n{mentions}"
                     )
                     party["reminded"] = True
 
