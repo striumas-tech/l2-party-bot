@@ -335,9 +335,21 @@ async def lfp(
         }.items() if v > 0
     }
 
-    if sum(roles_required.values()) + 1 > MAX_PARTY_SIZE:
-        await interaction.response.send_message("Party exceeds 9 members.", ephemeral=True)
-        return
+    total_requested = sum(roles_required.values())
+
+# Leader occupies one slot
+total_members = total_requested + 1
+
+# If leader role is already in requested roles, reduce one slot
+if leader_class.value in roles_required:
+    total_members = total_requested  # leader fills one of requested slots
+
+if total_members > MAX_PARTY_SIZE:
+    await interaction.response.send_message(
+        "Party exceeds 9 members.",
+        ephemeral=True
+    )
+    return
 
     global party_counter
     party_counter += 1
