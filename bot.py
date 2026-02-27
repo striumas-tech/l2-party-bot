@@ -151,7 +151,7 @@ def build_embed(party):
                 required = party["roles_required"][role]
                 filled = sum(1 for r in party["members"].values() if r == role)
                 icon = ROLE_ICONS.get(role, "")
-                mark = "✔️" if filled >= required else "❌"
+                mark = "✅" if filled >= required else "❌"
                 text += f"{mark} {icon} **{role.upper():<8}** `{filled}/{required}`\n"
         return text
 
@@ -185,13 +185,34 @@ def build_embed(party):
 # ==================================================
 
 class PartyView(discord.ui.View):
+    class CloseButton(discord.ui.Button):
     def __init__(self, party_id):
-        super().__init__(timeout=None)
+        super().__init__(label="Cancel Party", style=discord.ButtonStyle.danger)
         self.party_id = party_id
 
-        party = active_parties.get(party_id)
+    async def callback(self, interaction: discord.Interaction):
+
+        party = active_parties.get(self.party_id)
         if not party:
             return
+
+        # Only leader can see real action
+        if interaction.user.id != party["leader_id"]:
+            await interaction.response.send_message(
+                "Only party leader can cancel this party.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer()
+
+        await interaction.message.delete()
+
+        del active_parties[self.party_id]
+
+        for uid in list(user_party_map):
+            if user_party_map[uid] == self.party_id:
+                del user_party_map[uid]
 
         for role, required in party["roles_required"].items():
             filled = sum(1 for r in party["members"].values() if r == role)
