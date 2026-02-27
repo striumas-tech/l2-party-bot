@@ -1,7 +1,6 @@
 import asyncpg
 import os
 from zoneinfo import ZoneInfo, available_timezones
-import os
 import re
 import asyncio
 from datetime import datetime, timedelta, timezone
@@ -48,23 +47,31 @@ ROLE_DATA = {
 
 # ================= UTILITIES =================
 
-def parse_user_time(time_str: str, interaction: discord.Interaction):
+async def parse_user_time(time_str: str, interaction: discord.Interaction):
     if not re.match(r"^\d{2}:\d{2}$", time_str):
         return None
 
     hour, minute = map(int, time_str.split(":"))
 
-    # Use interaction time (already timezone aware)
-    now = interaction.created_at  # UTC aware datetime
+    # Get user's timezone from DB
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT timezone FROM user_timezones WHERE user_id = $1",
+            interaction.user.id
+        )
 
-    # Convert to user's local time assumption
-    start = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if not row:
+        return None  # user must set timezone first
 
-    # If that time already passed today, schedule tomorrow
-    if start <= now:
-        start += timedelta(days=1)
+    user_tz = ZoneInfo(row["timezone"])
 
-    return start
+    now_local = datetime.now(user_tz)
+    start_local = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+    if start_local <= now_local:
+        start_local += timedelta(days=1)
+
+    return start_local.astimezone(timezone.utc)
 
 
 def progress_bar(current, total, length=14):
@@ -277,6 +284,19 @@ class CancelButton(discord.ui.Button):
             if user_party_map[uid] == self.party_id:
                 del user_party_map[uid]
 
+async def timezone_autocomplete(
+    interaction: discord.Interaction,
+    current: str,
+):
+    matches = [
+        tz for tz in ALL_TIMEZONES
+        if current.lower() in tz.lower()
+    ]
+
+    return [
+        app_commands.Choice(name=tz, value=tz)
+        for tz in matches[:25]
+    ]
 
 # ================= SLASH COMMAND =================
 
@@ -295,9 +315,12 @@ async def lfp(
     dd: int = 0, mage: int = 0, sum: int = 0, spoil: int = 0,
 ):
 
-    start_time = parse_user_time(time, interaction)
+    start_time = await parse_user_time(time, interaction)
     if not start_time:
-        await interaction.response.send_message("Invalid time (HH:MM).", ephemeral=True)
+        await interaction.response.send_message(
+    "Invalid time or you must set timezone first using /settimezone",
+    ephemeral=True
+)
         return
 
     roles_required = {
@@ -332,10 +355,58 @@ async def lfp(
         view=PartyView(party_id)
     )
 
+@tree.command(
+    name="settimezone",
+    description="Set your timezone (example: Europe/Berlin)",
+    guild=discord.Object(id=GUILD_ID)
+)
+@app_commands.autocomplete(timezone=timezone_autocomplete)
+async def settimezone(
+    interaction: discord.Interaction,
+    timezone: str
+):
+    # Validate timezone
+    try:
+        ZoneInfo(timezone)
+    except:
+        await interaction.response.send_message(
+            "Invalid timezone selected.",
+            ephemeral=True
+        )
+        return
+
+    # Save to database
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO user_timezones (user_id, timezone)
+            VALUES ($1, $2)
+            ON CONFLICT (user_id)
+            DO UPDATE SET timezone = $2
+        """, interaction.user.id, timezone)
+
+    await interaction.response.send_message(
+        f"✅ Timezone set to **{timezone}**",
+        ephemeral=True
+    )
+
 # ================= READY =================
 
 @bot.event
 async def on_ready():
+    global db_pool
+
+    # Connect to Railway PostgreSQL
+    db_pool = await asyncpg.create_pool(os.getenv("DATABASE_URL"))
+
+    # Create table automatically if not exists
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_timezones (
+                user_id BIGINT PRIMARY KEY,
+                timezone TEXT NOT NULL
+            );
+        """)
+
     await tree.sync(guild=discord.Object(id=GUILD_ID))
     print(f"Logged in as {bot.user}")
 
