@@ -146,9 +146,9 @@ def build_embed(party):
         return text if text else "—"
 
     def add_section(title, roles):
-    section_text = build_section(roles)
-    if section_text != "—":
-        embed.add_field(name=title, value=section_text, inline=True)
+        section_text = build_section(roles)
+        if section_text != "—":
+            embed.add_field(name=title, value=section_text, inline=True)
 
 add_section("🛡 TANKS", tank_roles)
 add_section("🧩 SUPPORT", support_roles)
