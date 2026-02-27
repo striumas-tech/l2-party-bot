@@ -95,7 +95,7 @@ def build_embed(party):
     start_ts = int(party["start_time"].timestamp())
 
     # ===== CAPACITY FIX =====
-        requested_total = sum(party["roles_required"].values())
+    requested_total = sum(party["roles_required"].values())
 
     # Leader fills one slot if their class is requested
     if party["leader_class"] in party["roles_required"]:
