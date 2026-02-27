@@ -94,11 +94,12 @@ def build_embed(party):
     now = datetime.now(timezone.utc)
     start_ts = int(party["start_time"].timestamp())
 
+    # ===== CAPACITY FIX =====
     requested_total = sum(party["roles_required"].values())
     total = requested_total + 1  # + leader
     current = len(party["members"])
-    
 
+    # ===== STATUS COLOR =====
     if current >= total:
         status = "🟣 FULL"
         color = discord.Color.purple()
@@ -117,18 +118,21 @@ def build_embed(party):
         color=color
     )
 
+    # ===== TIMER =====
     embed.add_field(
         name="⏱ RAID TIMER",
         value=f"🕒 **<t:{start_ts}:t>**\n⏳ <t:{start_ts}:R>",
         inline=False
     )
 
+    # ===== LEADER =====
     embed.add_field(
         name="👑 LEADER",
         value=f"<@{party['leader_id']}> • **{party['leader_class'].upper()}**",
         inline=False
     )
 
+    # ===== ROLE GROUPS =====
     tank_roles = ["tank"]
     support_roles = ["wc", "pp", "bd", "sws", "se", "ee", "bs"]
     dps_roles = ["destro", "dd", "spoil"]
@@ -143,28 +147,34 @@ def build_embed(party):
                 icon = ROLE_ICONS.get(role, "")
                 mark = "✔️" if filled >= required else "❌"
                 text += f"{mark} {icon} **{role.upper():<8}** `{filled}/{required}`\n"
-        return text if text else "—"
+        return text
 
     def add_section(title, roles):
         section_text = build_section(roles)
-        if section_text != "—":
+        if section_text:
             embed.add_field(name=title, value=section_text, inline=True)
 
-add_section("🛡 TANKS", tank_roles)
-add_section("🧩 SUPPORT", support_roles)
-add_section("⚔️ DPS", dps_roles)
-add_section("🎲 OTHER", misc_roles)
+    add_section("🛡 TANKS", tank_roles)
+    add_section("🧩 SUPPORT", support_roles)
+    add_section("⚔️ DPS", dps_roles)
+    add_section("🎲 OTHER", misc_roles)
 
+    # ===== CAPACITY DISPLAY =====
     embed.add_field(
         name="📊 PARTY CAPACITY",
         value=f"`{progress_bar(current, total)}`\n**{current}/{total} Members**",
         inline=False
     )
 
-    embed.add_field(name="📌 STATUS", value=f"**{status}**", inline=False)
+    embed.add_field(
+        name="📌 STATUS",
+        value=f"**{status}**",
+        inline=False
+    )
+
+    embed.set_footer(text=f"Party ID: {party['party_id']}")
 
     return embed
-
 # ==================================================
 # BUTTONS
 # ==================================================
