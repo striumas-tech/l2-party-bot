@@ -323,14 +323,18 @@ async def lfp(
 )
         return
 
-    roles_required = {
-        k: v for k, v in {
-            "tank": tank,
-            "wc": wc, "pp": pp, "bd": bd, "sws": sws,
-            "se": se, "ee": ee, "bs": bs,
-            "dd": dd, "mage": mage, "sum": sum, "spoil": spoil,
-        }.items() if v > 0
-    }
+ roles_input = {
+    "tank": tank,
+    "wc": wc, "pp": pp, "bd": bd, "sws": sws,
+    "se": se, "ee": ee, "bs": bs,
+    "dd": dd, "mage": mage, "sum": sum, "spoil": spoil,
+}
+
+roles_required = {k: v for k, v in roles_input.items() if v > 0}
+
+# Ensure leader role is always present
+if leader_class.value not in roles_required:
+    roles_required[leader_class.value] = 1
 
     party_id = generate_party_id(zone)
 
