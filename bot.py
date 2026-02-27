@@ -95,7 +95,7 @@ def build_embed(party):
     start_ts = int(party["start_time"].timestamp())
 
     requested_total = sum(party["roles_required"].values())
-total = requested_total + 1  # + leader
+    total = requested_total + 1  # + leader
     current = len(party["members"])
     
 
