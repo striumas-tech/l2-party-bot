@@ -320,10 +320,45 @@ async def lfp(
         view=PartyView(party_id)
     )
 
+async def party_scheduler():
+    await bot.wait_until_ready()
+
+    while not bot.is_closed():
+        now = datetime.now(timezone.utc)
+
+        for party_id, party in list(active_parties.items()):
+
+            channel = bot.get_channel(party["channel_id"])
+            if not channel:
+                continue
+
+            # 10 minute reminder
+            if not party.get("reminded"):
+                seconds_left = (party["start_time"] - now).total_seconds()
+                if 0 < seconds_left <= 600:
+                    mentions = " ".join(f"<@{uid}>" for uid in party["members"])
+                    await channel.send(
+                        f"⏰ **{party['party_id']} starts in 10 minutes!**\n{mentions}"
+                    )
+                    party["reminded"] = True
+
+            # Update embed color/status automatically
+            try:
+                message = await channel.fetch_message(party["message_id"])
+                await message.edit(
+                    embed=build_embed(party),
+                    view=PartyView(party_id)
+                )
+            except:
+                pass
+
+        await asyncio.sleep(30)
+
 
 @bot.event
 async def on_ready():
     await tree.sync(guild=discord.Object(id=GUILD_ID))
+    bot.loop.create_task(party_scheduler())
     print(f"Logged in as {bot.user}")
 
 
