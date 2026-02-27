@@ -309,6 +309,8 @@ async def lfp(
     random: int = 0
 ):
 
+    global party_counter  # ✅ MUST BE FIRST
+
     if interaction.user.id in user_party_map:
         await interaction.response.send_message("You are already in a party.", ephemeral=True)
         return
@@ -336,22 +338,20 @@ async def lfp(
     }
 
     total_requested = sum(roles_required.values())
+    total_members = total_requested + 1
 
-# Leader occupies one slot
-total_members = total_requested + 1
+    # Leader fills one of requested slots if same role
+    if leader_class.value in roles_required:
+        total_members = total_requested
 
-# If leader role is already in requested roles, reduce one slot
-if leader_class.value in roles_required:
-    total_members = total_requested  # leader fills one of requested slots
+    if total_members > MAX_PARTY_SIZE:
+        await interaction.response.send_message(
+            "Party exceeds 9 members.",
+            ephemeral=True
+        )
+        return
 
-if total_members > MAX_PARTY_SIZE:
-    await interaction.response.send_message(
-        "Party exceeds 9 members.",
-        ephemeral=True
-    )
-    return
-
-    global party_counter
+    # ✅ Now increment safely
     party_counter += 1
     party_id = party_counter
 
