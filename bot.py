@@ -2,8 +2,8 @@ import os
 import re
 import time
 import asyncio
-from datetime import datetime, timezone, timedelta
-from typing import Dict
+from datetime import datetime, timedelta, timezone
+import re
 
 import discord
 from discord import app_commands
@@ -48,19 +48,19 @@ ROLE_ICONS = {
 # UTILITIES
 # =========================
 
-def parse_utc_time(time_str: str):
+def parse_local_time(time_str: str):
     if not re.match(r"^\d{2}:\d{2}$", time_str):
         return None
 
     hour, minute = map(int, time_str.split(":"))
-    now = datetime.now(timezone.utc)
 
+    now = datetime.now()  # local machine time
     start = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
     if start <= now:
         start += timedelta(days=1)
 
-    return start
+    return start.astimezone(timezone.utc)
 
 
 def progress_bar(current, total, length=14):
@@ -123,24 +123,38 @@ def build_embed(party):
         inline=False
     )
 
-    groups = {
-        "🛡 TANKS": ["tank"],
-        "🧩 SUPPORT": ["wc", "pp", "bd", "sws", "se", "ee", "bs"],
-        "⚔️ DPS": ["dd", "mage", "sum", "spoil"],
-    }
+ for title, roles in groups.items():
+    section_text = ""
 
-    for title, roles in groups.items():
-        text = ""
-        for role in roles:
-            if role in party["roles_required"]:
-                required = party["roles_required"][role]
-                filled = sum(1 for r in party["members"].values() if r == role)
-                icon = ROLE_ICONS.get(role, "")
-                mark = "🟢" if filled >= required else "❌"
-                text += f"{mark} {icon} **{role.upper()}** `{filled}/{required}`\n"
+    for role in roles:
+        if role in party["roles_required"]:
+            required = party["roles_required"][role]
 
-        if text:
-            embed.add_field(name=title, value=text, inline=True)
+            # members with this role
+            role_members = [
+                uid for uid, r in party["members"].items() if r == role
+            ]
+
+            filled = len(role_members)
+
+            mark = "🟢" if filled >= required else "❌"
+            icon = ROLE_DATA[role]["icon"]
+            name = ROLE_DATA[role]["name"]
+
+            section_text += f"{mark} {icon} **{name}** `{filled}/{required}`\n"
+
+            # Show usernames WITHOUT ping
+            for uid in role_members:
+                member = party["guild"].get_member(uid)
+                if member:
+                    section_text += f" • {member.display_name}\n"
+                else:
+                    section_text += f" • Unknown\n"
+
+            section_text += "\n"
+
+    if section_text:
+        embed.add_field(name=title, value=section_text, inline=False)
 
     embed.add_field(
         name="📊 PARTY CAPACITY",
@@ -158,7 +172,7 @@ def build_embed(party):
 # =========================
 
 class PartyView(discord.ui.View):
-    def __init__(self, party_id):
+    def __init__(self, party_id, viewer_id=None):
         super().__init__(timeout=None)
         self.party_id = party_id
 
@@ -166,13 +180,17 @@ class PartyView(discord.ui.View):
         if not party:
             return
 
+        # Join buttons
         for role, required in party["roles_required"].items():
             filled = sum(1 for r in party["members"].values() if r == role)
             if filled < required:
                 self.add_item(JoinButton(party_id, role))
 
         self.add_item(LeaveButton(party_id))
-        self.add_item(CancelButton(party_id))
+
+        # Only leader sees Cancel
+        if viewer_id == party["leader_id"]:
+            self.add_item(CancelButton(party_id))
 
 
 class JoinButton(discord.ui.Button):
@@ -198,7 +216,7 @@ class JoinButton(discord.ui.Button):
 
         await interaction.message.edit(
             embed=build_embed(party),
-            view=PartyView(self.party_id)
+            view=PartyView(party_id, interaction.user.id)
         )
 
 
@@ -279,7 +297,7 @@ async def lfp(
     dd: int = 0, mage: int = 0, sum: int = 0, spoil: int = 0,
 ):
 
-    start_time = parse_utc_time(time)
+    start_time = parse_local_time(time)
     if not start_time:
         await interaction.response.send_message("Invalid time format (HH:MM).", ephemeral=True)
         return
@@ -296,6 +314,7 @@ async def lfp(
     party_id = generate_party_id(zone)
 
     party = {
+        "guild": interaction.guild,
         "zone": zone,
         "party_id": party_id,
         "leader_id": interaction.user.id,
@@ -368,7 +387,7 @@ async def party_scheduler():
             # auto update embed color
             try:
                 msg = await channel.fetch_message(party["message_id"])
-                await msg.edit(embed=build_embed(party), view=PartyView(party_id))
+                await msg.edit(embed=build_embed(party), view=PartyView(party_id, party["leader_id"])
             except:
                 pass
 
