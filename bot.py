@@ -318,14 +318,17 @@ async def lfp(
     party_id = party_counter
 
     party = {
-        "id": party_id,
-        "zone": zone,
-        "leader_id": interaction.user.id,
-        "leader_class": leader_class.value,
-        "start_time": start_time,
-        "roles_required": roles_required,
-        "members": {interaction.user.id: leader_class.value},
-    }
+    "id": party_id,
+    "zone": zone,
+    "leader_id": interaction.user.id,
+    "leader_class": leader_class.value,
+    "start_time": start_time,
+    "roles_required": roles_required,
+    "members": {interaction.user.id: leader_class.value},
+    "message_id": None,
+    "channel_id": interaction.channel.id,
+    "reminded": False
+}
 
     active_parties[party_id] = party
     user_party_map[interaction.user.id] = party_id
@@ -335,10 +338,56 @@ async def lfp(
 
     await interaction.response.send_message(embed=embed, view=view)
 
+sent = await interaction.original_response()
+party["message_id"] = sent.id
+party["channel_id"] = interaction.channel.id
+
+async def party_scheduler():
+    await bot.wait_until_ready()
+
+    while not bot.is_closed():
+        now = datetime.now(timezone.utc)
+
+        for party_id in list(active_parties.keys()):
+            party = active_parties.get(party_id)
+            if not party:
+                continue
+
+            start = party["start_time"]
+            channel = bot.get_channel(party["channel_id"])
+
+            if not channel:
+                continue
+
+            # 10 MINUTE REMINDER
+            if not party["reminded"] and start.timestamp() - now.timestamp() <= 600 and start > now:
+                mentions = " ".join([f"<@{uid}>" for uid in party["members"]])
+                await channel.send(f"⏰ Party starts in 10 minutes!\n{mentions}")
+                party["reminded"] = True
+
+            # 30 MINUTE EXPIRE IF NOT FULL
+            if now > start and (now - start).total_seconds() >= 1800:
+                if party_current_count(party) < party_total_slots(party):
+                    try:
+                        message = await channel.fetch_message(party["message_id"])
+                        await message.delete()
+                    except:
+                        pass
+
+                    del active_parties[party_id]
+                    for uid in list(user_party_map):
+                        if user_party_map[uid] == party_id:
+                            del user_party_map[uid]
+
+        await discord.utils.sleep_until(
+            datetime.now(timezone.utc) + discord.utils.timedelta(seconds=60)
+        )
+
 
 @bot.event
 async def on_ready():
     await tree.sync(guild=discord.Object(id=GUILD_ID))
+    bot.loop.create_task(party_scheduler())
     print(f"Logged in as {bot.user}")
 
 
