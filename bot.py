@@ -32,6 +32,8 @@ ALL_TIMEZONES = sorted(available_timezones())
 
 ROLE_DATA = {
     "tank": {"icon": "🛡", "name": "Tank"},
+    "leecher": {"icon": "🧟", "name": "Leecher"},
+    "random": {"icon": "🎲", "name": "Random"},
     "wc": {"icon": "📜", "name": "Warcryer"},
     "pp": {"icon": "📜", "name": "Prophet"},
     "bd": {"icon": "💃", "name": "Bladedancer"},
@@ -150,6 +152,7 @@ def build_embed(party):
         "🛡 TANK": ["tank"],
         "🧩 SUPPORT": ["wc", "pp", "bd", "sws", "se", "ee", "bs"],
         "⚔️ DPS": ["dd", "mage", "sum", "spoil"],
+        "🎯 OTHER": ["leecher", "random"],
     }
 
     for title, roles in groups.items():
@@ -352,6 +355,8 @@ async def lfp(
     wc: int = 0,
     pp: int = 0,
     bd: int = 0,
+    leecher: int = 0,
+    random: int = 0,
     sws: int = 0,
     se: int = 0,
     ee: int = 0,
@@ -384,6 +389,8 @@ async def lfp(
         "wc": wc, "pp": pp, "bd": bd, "sws": sws,
         "se": se, "ee": ee, "bs": bs,
         "dd": dd, "mage": mage, "sum": sum, "spoil": spoil,
+        "leecher": leecher,
+        "random": random,
     }
 
     roles_required = {k: v for k, v in roles_input.items() if v > 0}
