@@ -271,6 +271,102 @@ class CancelButton(discord.ui.Button):
         del active_parties[self.party_id]
 
 
+# ================= SLASH COMMANDS =================
+
+@tree.command(name="lfp", description="Create party", guild=discord.Object(id=GUILD_ID))
+@app_commands.choices(
+    leader_class=[Choice(name=v["name"], value=k) for k, v in ROLE_DATA.items()]
+)
+async def lfp(
+    interaction: discord.Interaction,
+    zone: str,
+    time: str,
+    leader_class: Choice[str],
+    tank: int = 0,
+    wc: int = 0, pp: int = 0, bd: int = 0, sws: int = 0,
+    se: int = 0, ee: int = 0, bs: int = 0,
+    dd: int = 0, mage: int = 0, sum: int = 0, spoil: int = 0,
+):
+
+    start_time = await parse_user_time(time, interaction)
+    if not start_time:
+        await interaction.response.send_message(
+            "Invalid time or you must set timezone first using /settimezone",
+            ephemeral=True
+        )
+        return
+
+    roles_input = {
+        "tank": tank,
+        "wc": wc, "pp": pp, "bd": bd, "sws": sws,
+        "se": se, "ee": ee, "bs": bs,
+        "dd": dd, "mage": mage, "sum": sum, "spoil": spoil,
+    }
+
+    roles_required = {k: v for k, v in roles_input.items() if v > 0}
+
+    if leader_class.value not in roles_required:
+        roles_required[leader_class.value] = 1
+
+    party_id = generate_party_id(zone)
+
+    party = {
+        "guild": interaction.guild,
+        "zone": zone,
+        "party_id": party_id,
+        "leader_id": interaction.user.id,
+        "leader_class": leader_class.value,
+        "start_time": start_time,
+        "roles_required": roles_required,
+        "members": {interaction.user.id: leader_class.value},
+        "channel_id": interaction.channel.id,
+        "reminded": False,
+    }
+
+    active_parties[party_id] = party
+    user_party_map[interaction.user.id] = party_id
+
+    await interaction.response.send_message(
+        embed=build_embed(party),
+        view=PartyView(party_id, interaction.user.id)
+    )
+
+    sent = await interaction.original_response()
+    party["message_id"] = sent.id
+
+
+@tree.command(
+    name="settimezone",
+    description="Set your timezone (example: Europe/Berlin)",
+    guild=discord.Object(id=GUILD_ID)
+)
+@app_commands.autocomplete(timezone=timezone_autocomplete)
+async def settimezone(
+    interaction: discord.Interaction,
+    timezone: str
+):
+    try:
+        ZoneInfo(timezone)
+    except:
+        await interaction.response.send_message(
+            "Invalid timezone selected.",
+            ephemeral=True
+        )
+        return
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO user_timezones (user_id, timezone)
+            VALUES ($1, $2)
+            ON CONFLICT (user_id)
+            DO UPDATE SET timezone = $2
+        """, interaction.user.id, timezone)
+
+    await interaction.response.send_message(
+        f"✅ Timezone set to **{timezone}**",
+        ephemeral=True
+    )
+
 # ================= SCHEDULER =================
 
 async def party_scheduler():
