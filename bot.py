@@ -378,13 +378,13 @@ async def lfp(
     active_parties[party_id] = party
     user_party_map[interaction.user.id] = party_id
 
- await interaction.response.send_message(
-    embed=build_embed(party),
-    view=PartyView(party_id, interaction.user.id)
-)
+    await interaction.response.send_message(
+        embed=build_embed(party),
+        view=PartyView(party_id, interaction.user.id)
+    )
 
-sent = await interaction.original_response()
-party["message_id"] = sent.id
+    sent = await interaction.original_response()
+    party["message_id"] = sent.id
 
 @tree.command(
     name="settimezone",
