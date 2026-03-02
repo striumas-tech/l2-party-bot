@@ -184,4 +184,4 @@ def build_embed(party):
 
     return embed
     
-    bot.run(TOKEN)
+bot.run(TOKEN)
