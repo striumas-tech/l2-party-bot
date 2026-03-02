@@ -285,13 +285,24 @@ class CancelButton(discord.ui.Button):
         if not party:
             return
 
+        # If NOT leader → grey out button for this interaction
         if interaction.user.id != party["leader_id"]:
-            await interaction.response.send_message(
+
+            # Disable button
+            self.disabled = True
+
+            await interaction.response.edit_message(
+                view=self.view
+            )
+
+            await interaction.followup.send(
                 "Only party leader can cancel.",
                 ephemeral=True
             )
+
             return
 
+        # If leader → cancel normally
         await interaction.response.defer()
         await interaction.message.delete()
 
