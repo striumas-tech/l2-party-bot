@@ -378,6 +378,15 @@ async def lfp(
     await interaction.response.send_message(
         embed=build_embed(party),
         view=PartyView(party_id)
+
+        sent = await interaction.original_response()
+        party["message_id"] = sent.id
+        party["reminded"] = False
+)
+
+sent = await interaction.original_response()
+party["message_id"] = sent.id
+party["reminded"] = False
     )
 
 
@@ -411,6 +420,54 @@ async def settimezone(interaction: discord.Interaction, timezone: str):
         ephemeral=True
     )
 
+# ================= SCHEDULER =================
+
+async def party_scheduler():
+    await bot.wait_until_ready()
+
+    while not bot.is_closed():
+        now = datetime.now(timezone.utc)
+
+        for party_id, party in list(active_parties.items()):
+            channel = bot.get_channel(party["channel_id"])
+            if not channel:
+                continue
+
+            start = party["start_time"]
+
+            # 10 minute reminder
+            if not party.get("reminded"):
+                if 0 < (start - now).total_seconds() <= 600:
+                    await channel.send(
+                        f"⏰ **{party['zone'].upper()} PARTY starts in 10 minutes!**"
+                    )
+                    party["reminded"] = True
+
+            # Delete after 30 minutes
+            if now > start and (now - start).total_seconds() >= 1800:
+                try:
+                    msg = await channel.fetch_message(party["message_id"])
+                    await msg.delete()
+                except:
+                    pass
+
+                del active_parties[party_id]
+                await channel.send(
+                    f"❌ **{party['zone'].upper()} PARTY expired.**"
+                )
+                continue
+
+            # Update embed status
+            try:
+                msg = await channel.fetch_message(party["message_id"])
+                await msg.edit(
+                    embed=build_embed(party),
+                    view=PartyView(party_id)
+                )
+            except:
+                pass
+
+        await asyncio.sleep(30)
 
 # ================= READY =================
 
@@ -430,6 +487,8 @@ async def on_ready():
                 timezone TEXT NOT NULL
             );
         """)
+
+    bot.loop.create_task(party_scheduler())  # <-- ADD THIS
 
     await tree.sync(guild=discord.Object(id=GUILD_ID))
     print(f"Logged in as {bot.user}")
