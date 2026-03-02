@@ -185,7 +185,7 @@ def build_embed(party):
 # ================= BUTTONS =================
 
 class PartyView(discord.ui.View):
-    def __init__(self, party_id):
+    def __init__(self, party_id, viewer_id=None):
         super().__init__(timeout=None)
         self.party_id = party_id
 
@@ -193,13 +193,18 @@ class PartyView(discord.ui.View):
         if not party:
             return
 
+        # Join buttons
         for role, required in party["roles_required"].items():
             filled = sum(1 for r in party["members"].values() if r == role)
             if filled < required:
                 self.add_item(JoinButton(party_id, role))
 
+        # Leave button
         self.add_item(LeaveButton(party_id))
-        self.add_item(CancelButton(party_id))
+
+        # Only leader sees Cancel
+        if viewer_id == party["leader_id"]:
+            self.add_item(CancelButton(party_id))
 
 
 class JoinButton(discord.ui.Button):
@@ -230,7 +235,7 @@ class JoinButton(discord.ui.Button):
 
         await interaction.message.edit(
             embed=build_embed(party),
-            view=PartyView(self.party_id)
+            view=PartyView(self.party_id, interaction.user.id)
         )
 
 
@@ -263,7 +268,7 @@ class LeaveButton(discord.ui.Button):
 
         await interaction.message.edit(
             embed=build_embed(party),
-            view=PartyView(self.party_id)
+            view=PartyView(self.party_id, interaction.user.id)
         )
 
 
@@ -379,7 +384,7 @@ async def lfp(
     )
 
     sent = await interaction.original_response()
-    party["message_id"] = sent.id
+    view=PartyView(party_id, interaction.user.id)
 
 @tree.command(
     name="settimezone",
@@ -459,7 +464,7 @@ async def party_scheduler():
                 msg = await channel.fetch_message(party["message_id"])
                 await msg.edit(
                     embed=build_embed(party),
-                    view=PartyView(party_id)
+                    view=PartyView(party_id, party["leader_id"])
                 )
             except:
                 pass
