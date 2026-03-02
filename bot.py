@@ -99,11 +99,7 @@ def build_embed(party):
     start_ts = int(party["start_time"].timestamp())
 
     requested_total = sum(party["roles_required"].values())
-    if party["leader_class"] in party["roles_required"]:
-        total = requested_total
-    else:
-        total = requested_total + 1
-
+    total = requested_total
     current = len(party["members"])
 
     if current >= total:
@@ -130,15 +126,6 @@ def build_embed(party):
         inline=False
     )
 
-    leader_member = party["guild"].get_member(party["leader_id"])
-    leader_name = leader_member.display_name if leader_member else "Unknown"
-
-    embed.add_field(
-        name="👑 LEADER",
-        value=f"{leader_name} • {ROLE_DATA[party['leader_class']]['name']}",
-        inline=False
-    )
-
     groups = {
         "🛡 TANK": ["tank"],
         "🧩 SUPPORT": ["wc", "pp", "bd", "sws", "se", "ee", "bs"],
@@ -151,7 +138,6 @@ def build_embed(party):
         for role in roles:
             if role in party["roles_required"]:
                 required = party["roles_required"][role]
-
                 role_members = [
                     uid for uid, r in party["members"].items()
                     if r == role
@@ -159,7 +145,6 @@ def build_embed(party):
 
                 filled = len(role_members)
                 mark = "🟢" if filled >= required else "❌"
-
                 icon = ROLE_DATA[role]["icon"]
                 name = ROLE_DATA[role]["name"]
 
@@ -184,10 +169,11 @@ def build_embed(party):
 
     return embed
 
+
 # ================= BUTTONS =================
 
 class PartyView(discord.ui.View):
-    def __init__(self, party_id):
+    def __init__(self, party_id, viewer_id=None):
         super().__init__(timeout=None)
         self.party_id = party_id
 
@@ -201,7 +187,9 @@ class PartyView(discord.ui.View):
                 self.add_item(JoinButton(party_id, role))
 
         self.add_item(LeaveButton(party_id))
-        self.add_item(CancelButton(party_id))
+
+        if viewer_id == party["leader_id"]:
+            self.add_item(CancelButton(party_id))
 
 
 class JoinButton(discord.ui.Button):
@@ -232,7 +220,7 @@ class JoinButton(discord.ui.Button):
 
         await interaction.message.edit(
             embed=build_embed(party),
-            view=PartyView(self.party_id)
+            view=PartyView(self.party_id, interaction.user.id)
         )
 
 
@@ -254,10 +242,6 @@ class LeaveButton(discord.ui.Button):
         if interaction.user.id == party["leader_id"]:
             await interaction.message.delete()
             del active_parties[self.party_id]
-
-            for uid in list(user_party_map):
-                if user_party_map[uid] == self.party_id:
-                    del user_party_map[uid]
             return
 
         party["members"].pop(interaction.user.id, None)
@@ -265,7 +249,7 @@ class LeaveButton(discord.ui.Button):
 
         await interaction.message.edit(
             embed=build_embed(party),
-            view=PartyView(self.party_id)
+            view=PartyView(self.party_id, interaction.user.id)
         )
 
 
@@ -291,125 +275,57 @@ class CancelButton(discord.ui.Button):
 
         await interaction.response.defer()
         await interaction.message.delete()
-
         del active_parties[self.party_id]
 
-        for uid in list(user_party_map):
-            if user_party_map[uid] == self.party_id:
-                del user_party_map[uid]
 
-# ================= TIMEZONE AUTOCOMPLETE =================
+# ================= SCHEDULER =================
 
-async def timezone_autocomplete(interaction: discord.Interaction, current: str):
-    matches = [
-        tz for tz in ALL_TIMEZONES
-        if current.lower() in tz.lower()
-    ]
+async def party_scheduler():
+    await bot.wait_until_ready()
 
-    return [
-        app_commands.Choice(name=tz, value=tz)
-        for tz in matches[:25]
-    ]
+    while not bot.is_closed():
+        now = datetime.now(timezone.utc)
 
+        for party_id, party in list(active_parties.items()):
+            channel = bot.get_channel(party["channel_id"])
+            if not channel:
+                continue
 
-# ================= SLASH COMMAND =================
+            start = party["start_time"]
 
-@tree.command(name="lfp", description="Create party", guild=discord.Object(id=GUILD_ID))
-@app_commands.choices(
-    leader_class=[Choice(name=v["name"], value=k) for k, v in ROLE_DATA.items()]
-)
-async def lfp(
-    interaction: discord.Interaction,
-    zone: str,
-    time: str,
-    leader_class: Choice[str],
-    tank: int = 0,
-    wc: int = 0,
-    pp: int = 0,
-    bd: int = 0,
-    sws: int = 0,
-    se: int = 0,
-    ee: int = 0,
-    bs: int = 0,
-    dd: int = 0,
-    mage: int = 0,
-    sum: int = 0,
-    spoil: int = 0,
-):
+            # 10 minute reminder
+            if not party.get("reminded"):
+                if 0 < (start - now).total_seconds() <= 600:
+                    await channel.send(
+                        f"⏰ **{party['zone'].upper()} PARTY starts in 10 minutes!**"
+                    )
+                    party["reminded"] = True
 
-    start_time = await parse_user_time(time, interaction)
-    if not start_time:
-        await interaction.response.send_message(
-            "Invalid time or you must set timezone first using /settimezone",
-            ephemeral=True
-        )
-        return
+            # Delete after 30 min
+            if now > start and (now - start).total_seconds() >= 1800:
+                try:
+                    msg = await channel.fetch_message(party["message_id"])
+                    await msg.delete()
+                except:
+                    pass
 
-    roles_input = {
-        "tank": tank,
-        "wc": wc, "pp": pp, "bd": bd, "sws": sws,
-        "se": se, "ee": ee, "bs": bs,
-        "dd": dd, "mage": mage, "sum": sum, "spoil": spoil,
-    }
+                del active_parties[party_id]
+                await channel.send(
+                    f"❌ **{party['zone'].upper()} PARTY expired.**"
+                )
+                continue
 
-    roles_required = {k: v for k, v in roles_input.items() if v > 0}
+            # Update embed
+            try:
+                msg = await channel.fetch_message(party["message_id"])
+                await msg.edit(
+                    embed=build_embed(party),
+                    view=PartyView(party_id, party["leader_id"])
+                )
+            except:
+                pass
 
-    if leader_class.value not in roles_required:
-        roles_required[leader_class.value] = 1
-
-    party_id = generate_party_id(zone)
-
-    party = {
-        "guild": interaction.guild,
-        "zone": zone,
-        "party_id": party_id,
-        "leader_id": interaction.user.id,
-        "leader_class": leader_class.value,
-        "start_time": start_time,
-        "roles_required": roles_required,
-        "members": {interaction.user.id: leader_class.value},
-        "channel_id": interaction.channel.id,
-        "reminded": False,
-    }
-
-    active_parties[party_id] = party
-    user_party_map[interaction.user.id] = party_id
-
-    await interaction.response.send_message(
-        embed=build_embed(party),
-        view=PartyView(party_id)
-    )
-
-
-@tree.command(
-    name="settimezone",
-    description="Set your timezone (example: Europe/Berlin)",
-    guild=discord.Object(id=GUILD_ID)
-)
-@app_commands.autocomplete(timezone=timezone_autocomplete)
-async def settimezone(interaction: discord.Interaction, timezone: str):
-
-    try:
-        ZoneInfo(timezone)
-    except:
-        await interaction.response.send_message(
-            "Invalid timezone selected.",
-            ephemeral=True
-        )
-        return
-
-    async with db_pool.acquire() as conn:
-        await conn.execute("""
-            INSERT INTO user_timezones (user_id, timezone)
-            VALUES ($1, $2)
-            ON CONFLICT (user_id)
-            DO UPDATE SET timezone = $2
-        """, interaction.user.id, timezone)
-
-    await interaction.response.send_message(
-        f"✅ Timezone set to **{timezone}**",
-        ephemeral=True
-    )
+        await asyncio.sleep(30)
 
 
 # ================= READY =================
@@ -430,6 +346,8 @@ async def on_ready():
                 timezone TEXT NOT NULL
             );
         """)
+
+    bot.loop.create_task(party_scheduler())
 
     await tree.sync(guild=discord.Object(id=GUILD_ID))
     print(f"Logged in as {bot.user}")
