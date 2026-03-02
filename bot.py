@@ -476,18 +476,18 @@ async def party_scheduler():
                     party["reminded"] = True
 
             # Delete after 30 minutes
-           # if now >= party["end_time"]:
-           #     try:
-           #         msg = await channel.fetch_message(party["message_id"])
-           #         await msg.delete()
-           #     except:
-           #         pass
+            if now >= party["end_time"]:
+                try:
+                    msg = await channel.fetch_message(party["message_id"])
+                    await msg.delete()
+                except:
+                    pass
 
-           #     del active_parties[party_id]
+                del active_parties[party_id]
 
-           #     await channel.send(
-           #         f"❌ **{party['zone'].upper()} PARTY expired.**"
-           #     )
+                await channel.send(
+                    f"❌ **{party['zone'].upper()} PARTY expired.**"
+                )
 
                 continue
 
