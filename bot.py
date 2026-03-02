@@ -91,6 +91,7 @@ def generate_party_id(zone: str):
     zone_counters[zone] = zone_counters.get(zone, 0) + 1
     return f"{zone}-{zone_counters[zone]:02d}"
 
+
 # ================= EMBED =================
 
 def build_embed(party):
@@ -98,7 +99,6 @@ def build_embed(party):
     start_ts = int(party["start_time"].timestamp())
 
     requested_total = sum(party["roles_required"].values())
-
     if party["leader_class"] in party["roles_required"]:
         total = requested_total
     else:
@@ -183,5 +183,143 @@ def build_embed(party):
     embed.add_field(name="📌 STATUS", value=f"**{status}**", inline=False)
 
     return embed
-    
+
+
+# ================= TIMEZONE AUTOCOMPLETE =================
+
+async def timezone_autocomplete(interaction: discord.Interaction, current: str):
+    matches = [
+        tz for tz in ALL_TIMEZONES
+        if current.lower() in tz.lower()
+    ]
+
+    return [
+        app_commands.Choice(name=tz, value=tz)
+        for tz in matches[:25]
+    ]
+
+
+# ================= SLASH COMMAND =================
+
+@tree.command(name="lfp", description="Create party", guild=discord.Object(id=GUILD_ID))
+@app_commands.choices(
+    leader_class=[Choice(name=v["name"], value=k) for k, v in ROLE_DATA.items()]
+)
+async def lfp(
+    interaction: discord.Interaction,
+    zone: str,
+    time: str,
+    leader_class: Choice[str],
+    tank: int = 0,
+    wc: int = 0,
+    pp: int = 0,
+    bd: int = 0,
+    sws: int = 0,
+    se: int = 0,
+    ee: int = 0,
+    bs: int = 0,
+    dd: int = 0,
+    mage: int = 0,
+    sum: int = 0,
+    spoil: int = 0,
+):
+
+    start_time = await parse_user_time(time, interaction)
+    if not start_time:
+        await interaction.response.send_message(
+            "Invalid time or you must set timezone first using /settimezone",
+            ephemeral=True
+        )
+        return
+
+    roles_input = {
+        "tank": tank,
+        "wc": wc, "pp": pp, "bd": bd, "sws": sws,
+        "se": se, "ee": ee, "bs": bs,
+        "dd": dd, "mage": mage, "sum": sum, "spoil": spoil,
+    }
+
+    roles_required = {k: v for k, v in roles_input.items() if v > 0}
+
+    if leader_class.value not in roles_required:
+        roles_required[leader_class.value] = 1
+
+    party_id = generate_party_id(zone)
+
+    party = {
+        "guild": interaction.guild,
+        "zone": zone,
+        "party_id": party_id,
+        "leader_id": interaction.user.id,
+        "leader_class": leader_class.value,
+        "start_time": start_time,
+        "roles_required": roles_required,
+        "members": {interaction.user.id: leader_class.value},
+        "channel_id": interaction.channel.id,
+        "reminded": False,
+    }
+
+    active_parties[party_id] = party
+    user_party_map[interaction.user.id] = party_id
+
+    await interaction.response.send_message(
+        embed=build_embed(party),
+        view=PartyView(party_id)
+    )
+
+
+@tree.command(
+    name="settimezone",
+    description="Set your timezone (example: Europe/Berlin)",
+    guild=discord.Object(id=GUILD_ID)
+)
+@app_commands.autocomplete(timezone=timezone_autocomplete)
+async def settimezone(interaction: discord.Interaction, timezone: str):
+
+    try:
+        ZoneInfo(timezone)
+    except:
+        await interaction.response.send_message(
+            "Invalid timezone selected.",
+            ephemeral=True
+        )
+        return
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+            INSERT INTO user_timezones (user_id, timezone)
+            VALUES ($1, $2)
+            ON CONFLICT (user_id)
+            DO UPDATE SET timezone = $2
+        """, interaction.user.id, timezone)
+
+    await interaction.response.send_message(
+        f"✅ Timezone set to **{timezone}**",
+        ephemeral=True
+    )
+
+
+# ================= READY =================
+
+@bot.event
+async def on_ready():
+    global db_pool
+
+    db_pool = await asyncpg.create_pool(
+        os.getenv("DATABASE_URL"),
+        ssl="require"
+    )
+
+    async with db_pool.acquire() as conn:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_timezones (
+                user_id BIGINT PRIMARY KEY,
+                timezone TEXT NOT NULL
+            );
+        """)
+
+    await tree.sync(guild=discord.Object(id=GUILD_ID))
+    print(f"Logged in as {bot.user}")
+
+
 bot.run(TOKEN)
