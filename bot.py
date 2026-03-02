@@ -183,3 +183,5 @@ def build_embed(party):
     embed.add_field(name="📌 STATUS", value=f"**{status}**", inline=False)
 
     return embed
+    
+    bot.run(TOKEN)
