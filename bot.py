@@ -166,10 +166,8 @@ def build_embed(party):
                 section_text += f"{mark} {icon} **{name}** `{filled}/{required}`\n"
 
                 for uid in role_members:
-                    member = party["guild"].get_member(uid)
-                    if member:
-                        crown = " 👑" if uid == party["leader_id"] else ""
-                        section_text += f" • {member.display_name}{crown}\n"
+                    crown = " 👑" if uid == party["leader_id"] else ""
+                    section_text += f" • <@{uid}>{crown}\n"
 
         if section_text:
             embed.add_field(name=title, value=section_text, inline=False)
