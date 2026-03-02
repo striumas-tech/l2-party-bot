@@ -426,13 +426,18 @@ async def party_scheduler():
 
             start = party["start_time"]
 
-            # 10 minute reminder
-            if not party.get("reminded"):
-                if 0 < (start - now).total_seconds() <= 600:
-                    await channel.send(
-                        f"⏰ **{party['zone'].upper()} PARTY starts in 10 minutes!**"
-                    )
-                    party["reminded"] = True
+           # 10 minute reminder
+if not party.get("reminded"):
+    if 0 < (start - now).total_seconds() <= 600:
+
+        mentions = " ".join(f"<@{uid}>" for uid in party["members"].keys())
+
+        await channel.send(
+            f"⏰ **{party['zone'].upper()} PARTY starts in 10 minutes!**\n{mentions}",
+            allowed_mentions=discord.AllowedMentions(users=True)
+        )
+
+        party["reminded"] = True
 
             # Delete after 30 minutes
             if now > start and (now - start).total_seconds() >= 1800:
