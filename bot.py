@@ -96,25 +96,12 @@ def generate_party_id(zone: str):
 
 def build_embed(party):
     now = datetime.now(timezone.utc)
+
     start_ts = int(party["start_time"].timestamp())
-    start_time = await parse_user_time(start, interaction)
-    end_time = await parse_user_time(end, interaction)
-
-if not start_time or not end_time:
-    await interaction.response.send_message(
-        "Invalid time format or timezone not set.",
-        ephemeral=True
-    )
-    return
-
-if end_time <= start_time:
-    await interaction.response.send_message(
-        "End time must be after start time.",
-        ephemeral=True
-    )
-    return
+    end_ts = int(party["end_time"].timestamp())
 
     requested_total = sum(party["roles_required"].values())
+
     if party["leader_class"] in party["roles_required"]:
         total = requested_total
     else:
@@ -125,6 +112,9 @@ if end_time <= start_time:
     if current >= total:
         status = "🟣 FULL"
         color = discord.Color.purple()
+    elif now >= party["end_time"]:
+        status = "⚫ ENDED"
+        color = discord.Color.dark_gray()
     elif now >= party["start_time"]:
         status = "🔴 STARTED"
         color = discord.Color.red()
@@ -145,7 +135,6 @@ if end_time <= start_time:
         value=f"**Start:** <t:{start_ts}:t> (<t:{start_ts}:R>)\n"
               f"**End:** <t:{end_ts}:t> (<t:{end_ts}:R>)",
         inline=False
-)
     )
 
     leader_member = party["guild"].get_member(party["leader_id"])
@@ -196,10 +185,13 @@ if end_time <= start_time:
         inline=False
     )
 
-    embed.add_field(name="📌 STATUS", value=f"**{status}**", inline=False)
+    embed.add_field(
+        name="📌 STATUS",
+        value=f"**{status}**",
+        inline=False
+    )
 
     return embed
-
 # ================= BUTTONS =================
 
 class PartyView(discord.ui.View):
