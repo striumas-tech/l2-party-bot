@@ -184,6 +184,119 @@ def build_embed(party):
 
     return embed
 
+# ================= BUTTONS =================
+
+class PartyView(discord.ui.View):
+    def __init__(self, party_id):
+        super().__init__(timeout=None)
+        self.party_id = party_id
+
+        party = active_parties.get(party_id)
+        if not party:
+            return
+
+        for role, required in party["roles_required"].items():
+            filled = sum(1 for r in party["members"].values() if r == role)
+            if filled < required:
+                self.add_item(JoinButton(party_id, role))
+
+        self.add_item(LeaveButton(party_id))
+        self.add_item(CancelButton(party_id))
+
+
+class JoinButton(discord.ui.Button):
+    def __init__(self, party_id, role):
+        super().__init__(
+            label=f"Join {ROLE_DATA[role]['name']}",
+            style=discord.ButtonStyle.primary
+        )
+        self.party_id = party_id
+        self.role = role
+
+    async def callback(self, interaction: discord.Interaction):
+        party = active_parties.get(self.party_id)
+        if not party:
+            return
+
+        if interaction.user.id in user_party_map:
+            await interaction.response.send_message(
+                "Already in party.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer()
+
+        party["members"][interaction.user.id] = self.role
+        user_party_map[interaction.user.id] = self.party_id
+
+        await interaction.message.edit(
+            embed=build_embed(party),
+            view=PartyView(self.party_id)
+        )
+
+
+class LeaveButton(discord.ui.Button):
+    def __init__(self, party_id):
+        super().__init__(
+            label="Leave",
+            style=discord.ButtonStyle.secondary
+        )
+        self.party_id = party_id
+
+    async def callback(self, interaction: discord.Interaction):
+        party = active_parties.get(self.party_id)
+        if not party:
+            return
+
+        await interaction.response.defer()
+
+        if interaction.user.id == party["leader_id"]:
+            await interaction.message.delete()
+            del active_parties[self.party_id]
+
+            for uid in list(user_party_map):
+                if user_party_map[uid] == self.party_id:
+                    del user_party_map[uid]
+            return
+
+        party["members"].pop(interaction.user.id, None)
+        user_party_map.pop(interaction.user.id, None)
+
+        await interaction.message.edit(
+            embed=build_embed(party),
+            view=PartyView(self.party_id)
+        )
+
+
+class CancelButton(discord.ui.Button):
+    def __init__(self, party_id):
+        super().__init__(
+            label="Cancel Party",
+            style=discord.ButtonStyle.danger
+        )
+        self.party_id = party_id
+
+    async def callback(self, interaction: discord.Interaction):
+        party = active_parties.get(self.party_id)
+        if not party:
+            return
+
+        if interaction.user.id != party["leader_id"]:
+            await interaction.response.send_message(
+                "Only party leader can cancel.",
+                ephemeral=True
+            )
+            return
+
+        await interaction.response.defer()
+        await interaction.message.delete()
+
+        del active_parties[self.party_id]
+
+        for uid in list(user_party_map):
+            if user_party_map[uid] == self.party_id:
+                del user_party_map[uid]
 
 # ================= TIMEZONE AUTOCOMPLETE =================
 
