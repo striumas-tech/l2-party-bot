@@ -97,6 +97,22 @@ def generate_party_id(zone: str):
 def build_embed(party):
     now = datetime.now(timezone.utc)
     start_ts = int(party["start_time"].timestamp())
+    start_time = await parse_user_time(start, interaction)
+    end_time = await parse_user_time(end, interaction)
+
+if not start_time or not end_time:
+    await interaction.response.send_message(
+        "Invalid time format or timezone not set.",
+        ephemeral=True
+    )
+    return
+
+if end_time <= start_time:
+    await interaction.response.send_message(
+        "End time must be after start time.",
+        ephemeral=True
+    )
+    return
 
     requested_total = sum(party["roles_required"].values())
     if party["leader_class"] in party["roles_required"]:
@@ -125,9 +141,11 @@ def build_embed(party):
     )
 
     embed.add_field(
-        name="⏱ RAID TIMER",
-        value=f"<t:{start_ts}:t>\n<t:{start_ts}:R>",
+        name="⏱ PARTY TIME",
+        value=f"**Start:** <t:{start_ts}:t> (<t:{start_ts}:R>)\n"
+              f"**End:** <t:{end_ts}:t> (<t:{end_ts}:R>)",
         inline=False
+)
     )
 
     leader_member = party["guild"].get_member(party["leader_id"])
@@ -335,7 +353,8 @@ async def timezone_autocomplete(interaction: discord.Interaction, current: str):
 async def lfp(
     interaction: discord.Interaction,
     zone: str,
-    time: str,
+    start: str,
+    end: str,
     leader_class: Choice[str],
     tank: int = 0,
     wc: int = 0,
@@ -351,10 +370,19 @@ async def lfp(
     spoil: int = 0,
 ):
 
-    start_time = await parse_user_time(time, interaction)
-    if not start_time:
+    start_time = await parse_user_time(start, interaction)
+    end_time = await parse_user_time(end, interaction)
+
+    if not start_time or not end_time:
         await interaction.response.send_message(
-            "Invalid time or you must set timezone first using /settimezone",
+            "Invalid time format or timezone not set.",
+            ephemeral=True
+        )
+        return
+
+    if end_time <= start_time:
+        await interaction.response.send_message(
+            "End time must be after start time.",
             ephemeral=True
         )
         return
@@ -380,6 +408,7 @@ async def lfp(
         "leader_id": interaction.user.id,
         "leader_class": leader_class.value,
         "start_time": start_time,
+        "end_time": end_time,
         "roles_required": roles_required,
         "members": {interaction.user.id: leader_class.value},
         "channel_id": interaction.channel.id,
@@ -455,7 +484,7 @@ async def party_scheduler():
                     party["reminded"] = True
 
             # Delete after 30 minutes
-            if now > start and (now - start).total_seconds() >= 1800:
+            if now >= party["end_time"]:
                 try:
                     msg = await channel.fetch_message(party["message_id"])
                     await msg.delete()
