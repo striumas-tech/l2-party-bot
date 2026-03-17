@@ -50,32 +50,41 @@ ROLE_DATA = {
 # ================= UTILITIES =================
 
 async def parse_user_time(time_str: str, interaction: discord.Interaction):
-    if not re.match(r"^\d{2}:\d{2}$", time_str):
-        return None
+    from datetime import datetime, timedelta, timezone
 
-    hour, minute = map(int, time_str.split(":"))
+    parts = time_str.strip().split(":")
+    if len(parts) != 2:
+        raise ValueError("Time must be in HH:MM format.")
 
-    async with db_pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT timezone FROM user_timezones WHERE user_id = $1",
-            interaction.user.id
-        )
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except ValueError:
+        raise ValueError("Time must contain only numbers, for example 19:30.")
 
-    if not row:
-        return None
+    # allow 24:00 as next day midnight
+    if hour == 24 and minute == 0:
+        now_local = datetime.now().astimezone()
+        start_local = now_local.replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0
+        ) + timedelta(days=1)
+        return start_local.astimezone(timezone.utc)
 
-    user_tz = ZoneInfo(row["timezone"])
-    now_local = datetime.now(user_tz)
+    if not (0 <= hour <= 23):
+        raise ValueError("Hour must be between 00 and 23.")
+    if not (0 <= minute <= 59):
+        raise ValueError("Minute must be between 00 and 59.")
 
+    now_local = datetime.now().astimezone()
     start_local = now_local.replace(
         hour=hour,
         minute=minute,
         second=0,
         microsecond=0
     )
-
-    if start_local <= now_local:
-        start_local += timedelta(days=1)
 
     return start_local.astimezone(timezone.utc)
 
@@ -367,8 +376,44 @@ async def lfp(
     spoil: int = 0,
 ):
 
-    start_time = await parse_user_time(start, interaction)
-    end_time = await parse_user_time(end, interaction)
+async def parse_user_time(time_str: str, interaction: discord.Interaction):
+    from datetime import datetime, timedelta, timezone
+
+    parts = time_str.strip().split(":")
+    if len(parts) != 2:
+        raise ValueError("Time must be in HH:MM format.")
+
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except ValueError:
+        raise ValueError("Time must contain only numbers, for example 19:30.")
+
+    # allow 24:00 as next day midnight
+    if hour == 24 and minute == 0:
+        now_local = datetime.now().astimezone()
+        start_local = now_local.replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0
+        ) + timedelta(days=1)
+        return start_local.astimezone(timezone.utc)
+
+    if not (0 <= hour <= 23):
+        raise ValueError("Hour must be between 00 and 23.")
+    if not (0 <= minute <= 59):
+        raise ValueError("Minute must be between 00 and 59.")
+
+    now_local = datetime.now().astimezone()
+    start_local = now_local.replace(
+        hour=hour,
+        minute=minute,
+        second=0,
+        microsecond=0
+    )
+
+    return start_local.astimezone(timezone.utc)
 
     if not start_time or not end_time:
         await interaction.response.send_message(
