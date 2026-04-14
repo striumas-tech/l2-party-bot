@@ -504,6 +504,10 @@ async def party_scheduler():
                 except Exception:
                     pass
 
+                for uid in list(user_party_map):
+                    if user_party_map[uid] == party_id:
+                        del user_party_map[uid]
+                
                 del active_parties[party_id]
 
                 await channel.send(
