@@ -253,12 +253,19 @@ class JoinButton(discord.ui.Button):
         if not party:
             return
 
-        if interaction.user.id in user_party_map:
-            await interaction.response.send_message(
-                "Already in party.",
-                ephemeral=True
-            )
-            return
+        existing_party_id = user_party_map.get(interaction.user.id)
+
+        if existing_party_id:
+            # check if that party still exists
+            if existing_party_id not in active_parties:
+                # cleanup broken state
+                user_party_map.pop(interaction.user.id, None)
+            else:
+                await interaction.response.send_message(
+                    "Already in party.",
+                    ephemeral=True
+                )
+                return
 
         await interaction.response.defer()
 
