@@ -25,6 +25,7 @@ user_party_map: Dict[int, str] = {}
 zone_counters: Dict[str, int] = {}
 
 db_pool = None
+scheduler_started = False
 ALL_TIMEZONES = sorted(available_timezones())
 
 # ================= ROLE DATA =================
@@ -507,10 +508,6 @@ async def party_scheduler():
                 for uid in list(user_party_map):
                     if user_party_map[uid] == party_id:
                         del user_party_map[uid]
-                        
-                for uid in list(user_party_map):
-                    if user_party_map[uid] == party_id:
-                        del user_party_map[uid]
         
                 del active_parties[party_id]
 
@@ -535,24 +532,26 @@ async def party_scheduler():
 
 @bot.event
 async def on_ready():
-    global db_pool
+    global db_pool, scheduler_started
 
-    db_pool = await asyncpg.create_pool(
-        os.getenv("DATABASE_URL"),
-        ssl="require"
-    )
+    if db_pool is None:
+        db_pool = await asyncpg.create_pool(
+            os.getenv("DATABASE_URL"),
+            ssl="require"
+        )
 
-    async with db_pool.acquire() as conn:
-        await conn.execute("""
-            CREATE TABLE IF NOT EXISTS user_timezones (
-                user_id BIGINT PRIMARY KEY,
-                timezone TEXT NOT NULL
-            );
-        """)
+        async with db_pool.acquire() as conn:
+            await conn.execute("""
+                CREATE TABLE IF NOT EXISTS user_timezones (
+                    user_id BIGINT PRIMARY KEY,
+                    timezone TEXT NOT NULL
+                );
+            """)
 
-    bot.loop.create_task(party_scheduler())
+    if not scheduler_started:
+        bot.loop.create_task(party_scheduler())
+        scheduler_started = True
 
     await tree.sync(guild=discord.Object(id=GUILD_ID))
     print(f"Logged in as {bot.user}")
-
 bot.run(TOKEN)
