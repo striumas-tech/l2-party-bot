@@ -225,8 +225,12 @@ class PartyView(discord.ui.View):
         super().__init__(timeout=None)
         self.party_id = party_id
 
-        party = active_parties.get(party_id)
+        party = active_parties.get(self.party_id)
         if not party:
+            await interaction.response.send_message(
+                "This party is no longer active. Please create a new one.",
+                ephemeral=True
+            )
             return
 
         for role, required in party["roles_required"].items():
