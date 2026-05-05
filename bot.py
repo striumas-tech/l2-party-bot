@@ -330,12 +330,12 @@ class CancelButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction):
          party = active_parties.get(self.party_id)
-        if not party:
-            await interaction.response.send_message(
-                "This party is no longer active. Please create a new one.",
-                ephemeral=True
-            )
-            return
+         if not party:
+             await interaction.response.send_message(
+                 "This party is no longer active. Please create a new one.",
+                 ephemeral=True
+             )
+             return
 
         if interaction.user.id != party["leader_id"]:
             self.disabled = True
