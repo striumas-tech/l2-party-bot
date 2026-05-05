@@ -225,12 +225,8 @@ class PartyView(discord.ui.View):
         super().__init__(timeout=None)
         self.party_id = party_id
 
-        party = active_parties.get(self.party_id)
+        party = active_parties.get(party_id)
         if not party:
-            await interaction.response.send_message(
-                "This party is no longer active. Please create a new one.",
-                ephemeral=True
-            )
             return
 
         for role, required in party["roles_required"].items():
@@ -256,6 +252,10 @@ class JoinButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         party = active_parties.get(self.party_id)
         if not party:
+            await interaction.response.send_message(
+                "This party is no longer active. Please create a new one.",
+                ephemeral=True
+            )
             return
 
         existing_party_id = user_party_map.get(interaction.user.id)
@@ -294,6 +294,10 @@ class LeaveButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         party = active_parties.get(self.party_id)
         if not party:
+            await interaction.response.send_message(
+                "This party is no longer active. Please create a new one.",
+                ephemeral=True
+            )
             return
 
         await interaction.response.defer()
@@ -325,8 +329,12 @@ class CancelButton(discord.ui.Button):
         self.party_id = party_id
 
     async def callback(self, interaction: discord.Interaction):
-        party = active_parties.get(self.party_id)
+         party = active_parties.get(self.party_id)
         if not party:
+            await interaction.response.send_message(
+                "This party is no longer active. Please create a new one.",
+                ephemeral=True
+            )
             return
 
         if interaction.user.id != party["leader_id"]:
