@@ -21,6 +21,7 @@ tree = app_commands.CommandTree(bot)
 
 db_pool = None
 scheduler_started = False
+setup_sessions = {}
 ALL_TIMEZONES = sorted(available_timezones())
 
 ROLE_DATA = {
@@ -40,8 +41,6 @@ ROLE_DATA = {
     "sum": {"icon": "🐺", "name": "Summoner"},
     "spoil": {"icon": "💰", "name": "Spoiler"},
 }
-
-# ================= DATABASE =================
 
 async def setup_database():
     async with db_pool.acquire() as conn:
@@ -85,7 +84,6 @@ async def setup_database():
             );
         """)
 
-
 async def load_party(party_id: str):
     async with db_pool.acquire() as conn:
         party_row = await conn.fetchrow(
@@ -123,11 +121,9 @@ async def load_party(party_id: str):
         "reminded": party_row["reminded"],
     }
 
-
 async def delete_party(party_id: str):
     async with db_pool.acquire() as conn:
         await conn.execute("DELETE FROM lfp_parties WHERE party_id=$1", party_id)
-
 
 async def get_party_channel_id(guild_id: int):
     async with db_pool.acquire() as conn:
@@ -135,14 +131,7 @@ async def get_party_channel_id(guild_id: int):
             "SELECT party_channel_id FROM guild_config WHERE guild_id=$1",
             guild_id
         )
-
-    if not row:
-        return None
-
-    return row["party_channel_id"]
-
-
-# ================= UTILITIES =================
+    return row["party_channel_id"] if row else None
 
 async def parse_user_time(time_str: str, interaction: discord.Interaction):
     parts = time_str.strip().split(":")
@@ -168,9 +157,7 @@ async def parse_user_time(time_str: str, interaction: discord.Interaction):
     now_local = datetime.now(user_tz)
 
     if hour == 24 and minute == 0:
-        local_time = now_local.replace(
-            hour=0, minute=0, second=0, microsecond=0
-        ) + timedelta(days=1)
+        local_time = now_local.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
         return local_time.astimezone(timezone.utc)
 
     if not (0 <= hour <= 23):
@@ -178,22 +165,15 @@ async def parse_user_time(time_str: str, interaction: discord.Interaction):
     if not (0 <= minute <= 59):
         raise ValueError("Minute must be between 00 and 59.")
 
-    local_time = now_local.replace(
-        hour=hour,
-        minute=minute,
-        second=0,
-        microsecond=0
-    )
+    local_time = now_local.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
     if local_time <= now_local:
         local_time += timedelta(days=1)
 
     return local_time.astimezone(timezone.utc)
 
-
 def generate_party_id(zone: str):
     return f"{zone.upper()}-{uuid.uuid4().hex[:6].upper()}"
-
 
 def progress_bar(current, total, length=14):
     if total <= 0:
@@ -201,7 +181,6 @@ def progress_bar(current, total, length=14):
 
     filled = int(length * current / total)
     return "█" * filled + "░" * (length - filled)
-
 
 def build_embed(party):
     now = datetime.now(timezone.utc)
@@ -235,10 +214,8 @@ def build_embed(party):
 
     embed.add_field(
         name="⏱ PARTY TIME",
-        value=(
-            f"**Start:** <t:{start_ts}:t> (<t:{start_ts}:R>)\n"
-            f"**End:** <t:{end_ts}:t> (<t:{end_ts}:R>)"
-        ),
+        value=f"**Start:** <t:{start_ts}:t> (<t:{start_ts}:R>)\n"
+              f"**End:** <t:{end_ts}:t> (<t:{end_ts}:R>)",
         inline=False
     )
 
@@ -265,11 +242,7 @@ def build_embed(party):
         for role in roles:
             if role in party["roles_required"]:
                 required = party["roles_required"][role]
-                role_members = [
-                    uid for uid, r in party["members"].items()
-                    if r == role
-                ]
-
+                role_members = [uid for uid, r in party["members"].items() if r == role]
                 filled = len(role_members)
                 mark = "🟢" if filled >= required else "❌"
 
@@ -294,9 +267,6 @@ def build_embed(party):
     embed.add_field(name="📌 STATUS", value=f"**{status}**", inline=False)
     return embed
 
-
-# ================= BUTTONS =================
-
 class PartyView(discord.ui.View):
     def __init__(self, party_id, party=None, viewer_id=None):
         super().__init__(timeout=None)
@@ -313,7 +283,6 @@ class PartyView(discord.ui.View):
 
         if viewer_id == party["leader_id"]:
             self.add_item(CancelButton(party_id))
-
 
 class JoinButton(discord.ui.Button):
     def __init__(self, party_id, role):
@@ -349,10 +318,7 @@ class JoinButton(discord.ui.Button):
                 )
 
                 if existing:
-                    await interaction.response.send_message(
-                        "Already in party.",
-                        ephemeral=True
-                    )
+                    await interaction.response.send_message("Already in party.", ephemeral=True)
                     return
 
                 filled = await conn.fetchval(
@@ -367,10 +333,7 @@ class JoinButton(discord.ui.Button):
                 required = party["roles_required"].get(self.role, 0)
 
                 if filled >= required:
-                    await interaction.response.send_message(
-                        "That role is already full.",
-                        ephemeral=True
-                    )
+                    await interaction.response.send_message("That role is already full.", ephemeral=True)
                     return
 
                 await conn.execute(
@@ -391,7 +354,6 @@ class JoinButton(discord.ui.Button):
             embed=build_embed(party),
             view=PartyView(self.party_id, party, interaction.user.id)
         )
-
 
 class LeaveButton(discord.ui.Button):
     def __init__(self, party_id):
@@ -442,7 +404,6 @@ class LeaveButton(discord.ui.Button):
                 view=PartyView(self.party_id, party, interaction.user.id)
             )
 
-
 class CancelButton(discord.ui.Button):
     def __init__(self, party_id):
         super().__init__(
@@ -463,10 +424,7 @@ class CancelButton(discord.ui.Button):
             return
 
         if interaction.user.id != party["leader_id"]:
-            await interaction.response.send_message(
-                "Only party leader can cancel.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("Only party leader can cancel.", ephemeral=True)
             return
 
         await interaction.response.defer()
@@ -478,19 +436,9 @@ class CancelButton(discord.ui.Button):
 
         await delete_party(self.party_id)
 
-
-# ================= AUTOCOMPLETE =================
-
 async def timezone_autocomplete(interaction: discord.Interaction, current: str):
-    matches = [
-        tz for tz in ALL_TIMEZONES
-        if current.lower() in tz.lower()
-    ]
-
-    return [
-        app_commands.Choice(name=tz, value=tz)
-        for tz in matches[:25]
-    ]
+    matches = [tz for tz in ALL_TIMEZONES if current.lower() in tz.lower()]
+    return [app_commands.Choice(name=tz, value=tz) for tz in matches[:25]]
 
 def build_setup_embed(session):
     start_ts = int(session["start_time"].timestamp())
@@ -502,17 +450,8 @@ def build_setup_embed(session):
         color=discord.Color.blue()
     )
 
-    embed.add_field(
-        name="Zone",
-        value=session["zone"].upper(),
-        inline=True
-    )
-
-    embed.add_field(
-        name="Time",
-        value=f"<t:{start_ts}:t> - <t:{end_ts}:t>",
-        inline=True
-    )
+    embed.add_field(name="Zone", value=session["zone"].upper(), inline=True)
+    embed.add_field(name="Time", value=f"<t:{start_ts}:t> - <t:{end_ts}:t>", inline=True)
 
     text = ""
 
@@ -523,25 +462,15 @@ def build_setup_embed(session):
     if not text:
         text = "No roles selected."
 
-    embed.add_field(
-        name="Selected Roles",
-        value=text,
-        inline=False
-    )
-
+    embed.add_field(name="Selected Roles", value=text, inline=False)
     return embed
-
 
 class AddRoleSelect(discord.ui.Select):
     def __init__(self, session_id):
         self.session_id = session_id
 
         options = [
-            discord.SelectOption(
-                label=data["name"],
-                value=role,
-                emoji=data["icon"]
-            )
+            discord.SelectOption(label=data["name"], value=role, emoji=data["icon"])
             for role, data in ROLE_DATA.items()
         ]
 
@@ -556,17 +485,11 @@ class AddRoleSelect(discord.ui.Select):
         session = setup_sessions.get(self.session_id)
 
         if not session:
-            await interaction.response.send_message(
-                "Setup expired. Run /lfp again.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("Setup expired. Run /lfp again.", ephemeral=True)
             return
 
         if interaction.user.id != session["leader_id"]:
-            await interaction.response.send_message(
-                "Only the party creator can edit this setup.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("Only the party creator can edit this setup.", ephemeral=True)
             return
 
         role = self.values[0]
@@ -577,17 +500,12 @@ class AddRoleSelect(discord.ui.Select):
             view=PartySetupView(self.session_id)
         )
 
-
 class RemoveRoleSelect(discord.ui.Select):
     def __init__(self, session_id):
         self.session_id = session_id
 
         options = [
-            discord.SelectOption(
-                label=data["name"],
-                value=role,
-                emoji=data["icon"]
-            )
+            discord.SelectOption(label=data["name"], value=role, emoji=data["icon"])
             for role, data in ROLE_DATA.items()
         ]
 
@@ -602,24 +520,17 @@ class RemoveRoleSelect(discord.ui.Select):
         session = setup_sessions.get(self.session_id)
 
         if not session:
-            await interaction.response.send_message(
-                "Setup expired. Run /lfp again.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("Setup expired. Run /lfp again.", ephemeral=True)
             return
 
         if interaction.user.id != session["leader_id"]:
-            await interaction.response.send_message(
-                "Only the party creator can edit this setup.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("Only the party creator can edit this setup.", ephemeral=True)
             return
 
         role = self.values[0]
 
         if session["roles_required"].get(role, 0) > 0:
             session["roles_required"][role] -= 1
-
             if session["roles_required"][role] <= 0:
                 del session["roles_required"][role]
 
@@ -628,30 +539,20 @@ class RemoveRoleSelect(discord.ui.Select):
             view=PartySetupView(self.session_id)
         )
 
-
 class CreatePartyButton(discord.ui.Button):
     def __init__(self, session_id):
-        super().__init__(
-            label="Create Party",
-            style=discord.ButtonStyle.success
-        )
+        super().__init__(label="Create Party", style=discord.ButtonStyle.success)
         self.session_id = session_id
 
     async def callback(self, interaction: discord.Interaction):
         session = setup_sessions.get(self.session_id)
 
         if not session:
-            await interaction.response.send_message(
-                "Setup expired. Run /lfp again.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("Setup expired. Run /lfp again.", ephemeral=True)
             return
 
         if interaction.user.id != session["leader_id"]:
-            await interaction.response.send_message(
-                "Only the party creator can create this party.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("Only the party creator can create this party.", ephemeral=True)
             return
 
         guild_id = interaction.guild.id
@@ -733,7 +634,7 @@ class CreatePartyButton(discord.ui.Button):
                 party_id
             )
 
-        del setup_sessions[self.session_id]
+        setup_sessions.pop(self.session_id, None)
 
         await interaction.response.edit_message(
             content=f"✅ Party created in {target_channel.mention}",
@@ -741,13 +642,9 @@ class CreatePartyButton(discord.ui.Button):
             view=None
         )
 
-
 class CancelSetupButton(discord.ui.Button):
     def __init__(self, session_id):
-        super().__init__(
-            label="Cancel",
-            style=discord.ButtonStyle.danger
-        )
+        super().__init__(label="Cancel", style=discord.ButtonStyle.danger)
         self.session_id = session_id
 
     async def callback(self, interaction: discord.Interaction):
@@ -768,7 +665,6 @@ class CancelSetupButton(discord.ui.Button):
             view=None
         )
 
-
 class PartySetupView(discord.ui.View):
     def __init__(self, session_id):
         super().__init__(timeout=900)
@@ -778,8 +674,6 @@ class PartySetupView(discord.ui.View):
         self.add_item(RemoveRoleSelect(session_id))
         self.add_item(CreatePartyButton(session_id))
         self.add_item(CancelSetupButton(session_id))
-
-# ================= COMMANDS =================
 
 @tree.command(name="setpartychannel", description="Set party channel for this server")
 @app_commands.default_permissions(manage_guild=True)
@@ -801,17 +695,13 @@ async def setpartychannel(interaction: discord.Interaction, channel: discord.Tex
         ephemeral=True
     )
 
-
 @tree.command(name="settimezone", description="Set your timezone")
 @app_commands.autocomplete(timezone=timezone_autocomplete)
 async def settimezone(interaction: discord.Interaction, timezone: str):
     try:
         ZoneInfo(timezone)
     except Exception:
-        await interaction.response.send_message(
-            "Invalid timezone selected.",
-            ephemeral=True
-        )
+        await interaction.response.send_message("Invalid timezone selected.", ephemeral=True)
         return
 
     async with db_pool.acquire() as conn:
@@ -830,7 +720,6 @@ async def settimezone(interaction: discord.Interaction, timezone: str):
         f"✅ Timezone set to **{timezone}**",
         ephemeral=True
     )
-
 
 @tree.command(name="lfp", description="Create party")
 @app_commands.choices(
@@ -851,10 +740,7 @@ async def lfp(
         return
 
     if end_time <= start_time:
-        await interaction.response.send_message(
-            "End time must be after start time.",
-            ephemeral=True
-        )
+        await interaction.response.send_message("End time must be after start time.", ephemeral=True)
         return
 
     session_id = f"{interaction.guild.id}:{interaction.user.id}:{uuid.uuid4().hex[:6]}"
@@ -878,107 +764,6 @@ async def lfp(
         view=PartySetupView(session_id),
         ephemeral=True
     )
-
-    guild_id = interaction.guild.id
-
-    target_channel_id = await get_party_channel_id(guild_id)
-    target_channel = bot.get_channel(target_channel_id) if target_channel_id else interaction.channel
-
-    if not target_channel:
-        await interaction.response.send_message(
-            "Party channel not found. Use /setpartychannel again.",
-            ephemeral=True
-        )
-        return
-
-    async with db_pool.acquire() as conn:
-        existing = await conn.fetchrow(
-            """
-            SELECT party_id FROM lfp_party_members
-            WHERE guild_id=$1 AND user_id=$2
-            """,
-            guild_id,
-            interaction.user.id
-        )
-
-    if existing:
-        await interaction.response.send_message(
-            "You are already in a party in this server.",
-            ephemeral=True
-        )
-        return
-
-    roles_input = {
-        "tank": 1 if tank else 0,
-        "wc": 1 if wc else 0, "pp": 1 if pp else 0, "bd": 1 if bd else 0, "sws": 1 if sws else 0,
-        "se": 1 if se else 0, "ee": 1 if ee else 0, "bs": 1 if bs else 0,
-        "dd": dd, "mage": mage, "sum": 1 if sum else 0, "spoil": 1 if spoil else 0, "destro": destro,
-        "leecher": leecher,
-        "random": random,
-    }
-
-    roles_required = {k: v for k, v in roles_input.items() if v > 0}
-
-    if leader_class.value not in roles_required:
-        roles_required[leader_class.value] = 1
-
-    party_id = generate_party_id(zone)
-
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO lfp_parties (
-                party_id, guild_id, channel_id, message_id,
-                leader_id, leader_class, zone,
-                roles_required, start_time, end_time, reminded
-            )
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-            """,
-            party_id,
-            guild_id,
-            target_channel.id,
-            None,
-            interaction.user.id,
-            leader_class.value,
-            zone,
-            json.dumps(roles_required),
-            start_time,
-            end_time,
-            False
-        )
-
-        await conn.execute(
-            """
-            INSERT INTO lfp_party_members (guild_id, user_id, party_id, role)
-            VALUES ($1,$2,$3,$4)
-            """,
-            guild_id,
-            interaction.user.id,
-            party_id,
-            leader_class.value
-        )
-
-    party = await load_party(party_id)
-
-    sent = await target_channel.send(
-        embed=build_embed(party),
-        view=PartyView(party_id, party, interaction.user.id)
-    )
-
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            "UPDATE lfp_parties SET message_id=$1 WHERE party_id=$2",
-            sent.id,
-            party_id
-        )
-
-    await interaction.response.send_message(
-        f"✅ Party created in {target_channel.mention}",
-        ephemeral=True
-    )
-
-
-# ================= SCHEDULER =================
 
 async def party_scheduler():
     await bot.wait_until_ready()
@@ -1025,10 +810,7 @@ async def party_scheduler():
 
                 await delete_party(party["party_id"])
 
-                await channel.send(
-                    f"❌ **{party['zone'].upper()} PARTY expired.**"
-                )
-
+                await channel.send(f"❌ **{party['zone'].upper()} PARTY expired.**")
                 continue
 
             try:
@@ -1042,40 +824,24 @@ async def party_scheduler():
 
         await asyncio.sleep(60)
 
-
-# ================= READY =================
-
 @bot.event
 async def on_ready():
     global db_pool, scheduler_started
 
     if db_pool is None:
-        db_pool = await asyncpg.create_pool(
-            DATABASE_URL,
-            ssl="require"
-        )
-
+        db_pool = await asyncpg.create_pool(DATABASE_URL, ssl="require")
         await setup_database()
 
     if not scheduler_started:
-
         async with db_pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT party_id FROM lfp_parties"
-            )
+            rows = await conn.fetch("SELECT party_id FROM lfp_parties")
 
         for row in rows:
             party = await load_party(row["party_id"])
-
             if party:
-                bot.add_view(
-                    PartyView(party["party_id"], party)
-                )
+                bot.add_view(PartyView(party["party_id"], party))
 
-        bot.loop.create_task(
-            party_scheduler()
-        )
-
+        bot.loop.create_task(party_scheduler())
         scheduler_started = True
 
     print("Connected guilds:")
@@ -1085,18 +851,12 @@ async def on_ready():
 
         try:
             guild_obj = discord.Object(id=guild.id)
-
             tree.copy_global_to(guild=guild_obj)
             synced = await tree.sync(guild=guild_obj)
-
             print(f"Synced {len(synced)} commands to {guild.name}")
-
         except Exception as e:
             print(f"Failed sync for {guild.name}: {e}")
 
-    print(
-        f"Logged in as {bot.user} in {len(bot.guilds)} servers"
-    )
-
+    print(f"Logged in as {bot.user} in {len(bot.guilds)} servers")
 
 bot.run(TOKEN)
