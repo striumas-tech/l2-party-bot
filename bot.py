@@ -770,11 +770,17 @@ async def on_ready():
         bot.loop.create_task(party_scheduler())
         scheduler_started = True
 
-    for guild in bot.guilds:
-        tree.copy_global_to(guild=discord.Object(id=guild.id))
+print("Connected guilds:")
+
+for guild in bot.guilds:
+    print(f"{guild.name} ({guild.id})")
+
+    try:
         await tree.sync(guild=discord.Object(id=guild.id))
+        print(f"Synced commands to {guild.name}")
+    except Exception as e:
+        print(f"Failed sync for {guild.name}: {e}")
 
-    print(f"Logged in as {bot.user} in {len(bot.guilds)} servers")
-
+print(f"Logged in as {bot.user} in {len(bot.guilds)} servers")
 
 bot.run(TOKEN)
