@@ -5,7 +5,6 @@ import uuid
 import asyncio
 from zoneinfo import ZoneInfo, available_timezones
 from datetime import datetime, timedelta, timezone
-from typing import Dict
 
 import discord
 from discord import app_commands
@@ -13,7 +12,6 @@ from discord.app_commands import Choice
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 DATABASE_URL = os.getenv("DATABASE_URL")
-GUILD_ID = 1149113323200200825
 
 intents = discord.Intents.default()
 intents.members = True
@@ -42,7 +40,7 @@ ROLE_DATA = {
     "spoil": {"icon": "💰", "name": "Spoiler"},
 }
 
-# ================= DATABASE HELPERS =================
+# ================= DATABASE =================
 
 async def setup_database():
     async with db_pool.acquire() as conn:
@@ -54,7 +52,14 @@ async def setup_database():
         """)
 
         await conn.execute("""
-            CREATE TABLE IF NOT EXISTS parties (
+            CREATE TABLE IF NOT EXISTS guild_config (
+                guild_id BIGINT PRIMARY KEY,
+                party_channel_id BIGINT
+            );
+        """)
+
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS lfp_parties (
                 party_id TEXT PRIMARY KEY,
                 guild_id BIGINT NOT NULL,
                 channel_id BIGINT NOT NULL,
@@ -70,10 +75,12 @@ async def setup_database():
         """)
 
         await conn.execute("""
-            CREATE TABLE IF NOT EXISTS party_members (
-                user_id BIGINT PRIMARY KEY,
-                party_id TEXT NOT NULL REFERENCES parties(party_id) ON DELETE CASCADE,
-                role TEXT NOT NULL
+            CREATE TABLE IF NOT EXISTS lfp_party_members (
+                guild_id BIGINT NOT NULL,
+                user_id BIGINT NOT NULL,
+                party_id TEXT NOT NULL REFERENCES lfp_parties(party_id) ON DELETE CASCADE,
+                role TEXT NOT NULL,
+                PRIMARY KEY (guild_id, user_id)
             );
         """)
 
@@ -81,7 +88,7 @@ async def setup_database():
 async def load_party(party_id: str):
     async with db_pool.acquire() as conn:
         party_row = await conn.fetchrow(
-            "SELECT * FROM parties WHERE party_id=$1",
+            "SELECT * FROM lfp_parties WHERE party_id=$1",
             party_id
         )
 
@@ -89,7 +96,7 @@ async def load_party(party_id: str):
             return None
 
         member_rows = await conn.fetch(
-            "SELECT user_id, role FROM party_members WHERE party_id=$1",
+            "SELECT user_id, role FROM lfp_party_members WHERE party_id=$1",
             party_id
         )
 
@@ -101,6 +108,7 @@ async def load_party(party_id: str):
 
     return {
         "guild": guild,
+        "guild_id": party_row["guild_id"],
         "zone": party_row["zone"],
         "party_id": party_row["party_id"],
         "leader_id": party_row["leader_id"],
@@ -117,7 +125,20 @@ async def load_party(party_id: str):
 
 async def delete_party(party_id: str):
     async with db_pool.acquire() as conn:
-        await conn.execute("DELETE FROM parties WHERE party_id=$1", party_id)
+        await conn.execute("DELETE FROM lfp_parties WHERE party_id=$1", party_id)
+
+
+async def get_party_channel_id(guild_id: int):
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT party_channel_id FROM guild_config WHERE guild_id=$1",
+            guild_id
+        )
+
+    if not row:
+        return None
+
+    return row["party_channel_id"]
 
 
 # ================= UTILITIES =================
@@ -169,6 +190,10 @@ async def parse_user_time(time_str: str, interaction: discord.Interaction):
     return local_time.astimezone(timezone.utc)
 
 
+def generate_party_id(zone: str):
+    return f"{zone.upper()}-{uuid.uuid4().hex[:6].upper()}"
+
+
 def progress_bar(current, total, length=14):
     if total <= 0:
         return "░" * length
@@ -177,18 +202,13 @@ def progress_bar(current, total, length=14):
     return "█" * filled + "░" * (length - filled)
 
 
-def generate_party_id(zone: str):
-    return f"{zone.upper()}-{uuid.uuid4().hex[:6].upper()}"
-
-
 def build_embed(party):
     now = datetime.now(timezone.utc)
 
     start_ts = int(party["start_time"].timestamp())
     end_ts = int(party["end_time"].timestamp())
 
-    requested_total = sum(party["roles_required"].values())
-    total = requested_total
+    total = sum(party["roles_required"].values())
     current = len(party["members"])
 
     if current >= total:
@@ -214,8 +234,10 @@ def build_embed(party):
 
     embed.add_field(
         name="⏱ PARTY TIME",
-        value=f"**Start:** <t:{start_ts}:t> (<t:{start_ts}:R>)\n"
-              f"**End:** <t:{end_ts}:t> (<t:{end_ts}:R>)",
+        value=(
+            f"**Start:** <t:{start_ts}:t> (<t:{start_ts}:R>)\n"
+            f"**End:** <t:{end_ts}:t> (<t:{end_ts}:R>)"
+        ),
         inline=False
     )
 
@@ -277,7 +299,6 @@ def build_embed(party):
 class PartyView(discord.ui.View):
     def __init__(self, party_id, party=None, viewer_id=None):
         super().__init__(timeout=None)
-        self.party_id = party_id
 
         if not party:
             return
@@ -313,46 +334,54 @@ class JoinButton(discord.ui.Button):
             )
             return
 
+        guild_id = interaction.guild.id
+
         async with db_pool.acquire() as conn:
-            existing = await conn.fetchrow(
-                "SELECT party_id FROM party_members WHERE user_id=$1",
-                interaction.user.id
-            )
-
-            if existing:
-                await interaction.response.send_message(
-                    "Already in party.",
-                    ephemeral=True
+            async with conn.transaction():
+                existing = await conn.fetchrow(
+                    """
+                    SELECT party_id FROM lfp_party_members
+                    WHERE guild_id=$1 AND user_id=$2
+                    """,
+                    guild_id,
+                    interaction.user.id
                 )
-                return
 
-            filled = await conn.fetchval(
-                """
-                SELECT COUNT(*) FROM party_members
-                WHERE party_id=$1 AND role=$2
-                """,
-                self.party_id,
-                self.role
-            )
+                if existing:
+                    await interaction.response.send_message(
+                        "Already in party.",
+                        ephemeral=True
+                    )
+                    return
 
-            required = party["roles_required"].get(self.role, 0)
-
-            if filled >= required:
-                await interaction.response.send_message(
-                    "That role is already full.",
-                    ephemeral=True
+                filled = await conn.fetchval(
+                    """
+                    SELECT COUNT(*) FROM lfp_party_members
+                    WHERE party_id=$1 AND role=$2
+                    """,
+                    self.party_id,
+                    self.role
                 )
-                return
 
-            await conn.execute(
-                """
-                INSERT INTO party_members (user_id, party_id, role)
-                VALUES ($1, $2, $3)
-                """,
-                interaction.user.id,
-                self.party_id,
-                self.role
-            )
+                required = party["roles_required"].get(self.role, 0)
+
+                if filled >= required:
+                    await interaction.response.send_message(
+                        "That role is already full.",
+                        ephemeral=True
+                    )
+                    return
+
+                await conn.execute(
+                    """
+                    INSERT INTO lfp_party_members (guild_id, user_id, party_id, role)
+                    VALUES ($1,$2,$3,$4)
+                    """,
+                    guild_id,
+                    interaction.user.id,
+                    self.party_id,
+                    self.role
+                )
 
         await interaction.response.defer()
 
@@ -395,7 +424,11 @@ class LeaveButton(discord.ui.Button):
 
         async with db_pool.acquire() as conn:
             await conn.execute(
-                "DELETE FROM party_members WHERE user_id=$1 AND party_id=$2",
+                """
+                DELETE FROM lfp_party_members
+                WHERE guild_id=$1 AND user_id=$2 AND party_id=$3
+                """,
+                interaction.guild.id,
                 interaction.user.id,
                 self.party_id
             )
@@ -445,7 +478,7 @@ class CancelButton(discord.ui.Button):
         await delete_party(self.party_id)
 
 
-# ================= TIMEZONE AUTOCOMPLETE =================
+# ================= AUTOCOMPLETE =================
 
 async def timezone_autocomplete(interaction: discord.Interaction, current: str):
     matches = [
@@ -459,9 +492,60 @@ async def timezone_autocomplete(interaction: discord.Interaction, current: str):
     ]
 
 
-# ================= SLASH COMMANDS =================
+# ================= COMMANDS =================
 
-@tree.command(name="lfp", description="Create party", guild=discord.Object(id=GUILD_ID))
+@tree.command(name="setpartychannel", description="Set party channel for this server")
+@app_commands.default_permissions(manage_guild=True)
+async def setpartychannel(interaction: discord.Interaction, channel: discord.TextChannel):
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO guild_config (guild_id, party_channel_id)
+            VALUES ($1,$2)
+            ON CONFLICT (guild_id)
+            DO UPDATE SET party_channel_id=EXCLUDED.party_channel_id
+            """,
+            interaction.guild.id,
+            channel.id
+        )
+
+    await interaction.response.send_message(
+        f"✅ Party channel set to {channel.mention}",
+        ephemeral=True
+    )
+
+
+@tree.command(name="settimezone", description="Set your timezone")
+@app_commands.autocomplete(timezone=timezone_autocomplete)
+async def settimezone(interaction: discord.Interaction, timezone: str):
+    try:
+        ZoneInfo(timezone)
+    except Exception:
+        await interaction.response.send_message(
+            "Invalid timezone selected.",
+            ephemeral=True
+        )
+        return
+
+    async with db_pool.acquire() as conn:
+        await conn.execute(
+            """
+            INSERT INTO user_timezones (user_id, timezone)
+            VALUES ($1,$2)
+            ON CONFLICT (user_id)
+            DO UPDATE SET timezone=$2
+            """,
+            interaction.user.id,
+            timezone
+        )
+
+    await interaction.response.send_message(
+        f"✅ Timezone set to **{timezone}**",
+        ephemeral=True
+    )
+
+
+@tree.command(name="lfp", description="Create party")
 @app_commands.choices(
     leader_class=[Choice(name=v["name"], value=k) for k, v in ROLE_DATA.items()]
 )
@@ -500,15 +584,31 @@ async def lfp(
         )
         return
 
+    guild_id = interaction.guild.id
+
+    target_channel_id = await get_party_channel_id(guild_id)
+    target_channel = bot.get_channel(target_channel_id) if target_channel_id else interaction.channel
+
+    if not target_channel:
+        await interaction.response.send_message(
+            "Party channel not found. Use /setpartychannel again.",
+            ephemeral=True
+        )
+        return
+
     async with db_pool.acquire() as conn:
         existing = await conn.fetchrow(
-            "SELECT party_id FROM party_members WHERE user_id=$1",
+            """
+            SELECT party_id FROM lfp_party_members
+            WHERE guild_id=$1 AND user_id=$2
+            """,
+            guild_id,
             interaction.user.id
         )
 
     if existing:
         await interaction.response.send_message(
-            "You are already in a party.",
+            "You are already in a party in this server.",
             ephemeral=True
         )
         return
@@ -532,7 +632,7 @@ async def lfp(
     async with db_pool.acquire() as conn:
         await conn.execute(
             """
-            INSERT INTO parties (
+            INSERT INTO lfp_parties (
                 party_id, guild_id, channel_id, message_id,
                 leader_id, leader_class, zone,
                 roles_required, start_time, end_time, reminded
@@ -540,8 +640,8 @@ async def lfp(
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
             """,
             party_id,
-            interaction.guild.id,
-            interaction.channel.id,
+            guild_id,
+            target_channel.id,
             None,
             interaction.user.id,
             leader_class.value,
@@ -554,9 +654,10 @@ async def lfp(
 
         await conn.execute(
             """
-            INSERT INTO party_members (user_id, party_id, role)
-            VALUES ($1,$2,$3)
+            INSERT INTO lfp_party_members (guild_id, user_id, party_id, role)
+            VALUES ($1,$2,$3,$4)
             """,
+            guild_id,
             interaction.user.id,
             party_id,
             leader_class.value
@@ -564,51 +665,20 @@ async def lfp(
 
     party = await load_party(party_id)
 
-    await interaction.response.send_message(
+    sent = await target_channel.send(
         embed=build_embed(party),
         view=PartyView(party_id, party, interaction.user.id)
     )
 
-    sent = await interaction.original_response()
-
     async with db_pool.acquire() as conn:
         await conn.execute(
-            "UPDATE parties SET message_id=$1 WHERE party_id=$2",
+            "UPDATE lfp_parties SET message_id=$1 WHERE party_id=$2",
             sent.id,
             party_id
         )
 
-
-@tree.command(
-    name="settimezone",
-    description="Set your timezone",
-    guild=discord.Object(id=GUILD_ID)
-)
-@app_commands.autocomplete(timezone=timezone_autocomplete)
-async def settimezone(interaction: discord.Interaction, timezone: str):
-    try:
-        ZoneInfo(timezone)
-    except Exception:
-        await interaction.response.send_message(
-            "Invalid timezone selected.",
-            ephemeral=True
-        )
-        return
-
-    async with db_pool.acquire() as conn:
-        await conn.execute(
-            """
-            INSERT INTO user_timezones (user_id, timezone)
-            VALUES ($1,$2)
-            ON CONFLICT (user_id)
-            DO UPDATE SET timezone=$2
-            """,
-            interaction.user.id,
-            timezone
-        )
-
     await interaction.response.send_message(
-        f"✅ Timezone set to **{timezone}**",
+        f"✅ Party created in {target_channel.mention}",
         ephemeral=True
     )
 
@@ -622,7 +692,7 @@ async def party_scheduler():
         now = datetime.now(timezone.utc)
 
         async with db_pool.acquire() as conn:
-            rows = await conn.fetch("SELECT party_id FROM parties")
+            rows = await conn.fetch("SELECT party_id FROM lfp_parties")
 
         for row in rows:
             party = await load_party(row["party_id"])
@@ -647,7 +717,7 @@ async def party_scheduler():
 
                     async with db_pool.acquire() as conn:
                         await conn.execute(
-                            "UPDATE parties SET reminded=TRUE WHERE party_id=$1",
+                            "UPDATE lfp_parties SET reminded=TRUE WHERE party_id=$1",
                             party["party_id"]
                         )
 
@@ -690,7 +760,7 @@ async def on_ready():
 
     if not scheduler_started:
         async with db_pool.acquire() as conn:
-            rows = await conn.fetch("SELECT party_id FROM parties")
+            rows = await conn.fetch("SELECT party_id FROM lfp_parties")
 
         for row in rows:
             party = await load_party(row["party_id"])
@@ -700,8 +770,11 @@ async def on_ready():
         bot.loop.create_task(party_scheduler())
         scheduler_started = True
 
-    await tree.sync(guild=discord.Object(id=GUILD_ID))
-    print(f"Logged in as {bot.user}")
+    for guild in bot.guilds:
+        tree.copy_global_to(guild=discord.Object(id=guild.id))
+        await tree.sync(guild=discord.Object(id=guild.id))
+
+    print(f"Logged in as {bot.user} in {len(bot.guilds)} servers")
 
 
 bot.run(TOKEN)
