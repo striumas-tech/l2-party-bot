@@ -755,32 +755,53 @@ async def on_ready():
     global db_pool, scheduler_started
 
     if db_pool is None:
-        db_pool = await asyncpg.create_pool(DATABASE_URL, ssl="require")
+        db_pool = await asyncpg.create_pool(
+            DATABASE_URL,
+            ssl="require"
+        )
+
         await setup_database()
 
     if not scheduler_started:
+
         async with db_pool.acquire() as conn:
-            rows = await conn.fetch("SELECT party_id FROM lfp_parties")
+            rows = await conn.fetch(
+                "SELECT party_id FROM lfp_parties"
+            )
 
         for row in rows:
             party = await load_party(row["party_id"])
-            if party:
-                bot.add_view(PartyView(party["party_id"], party))
 
-        bot.loop.create_task(party_scheduler())
+            if party:
+                bot.add_view(
+                    PartyView(party["party_id"], party)
+                )
+
+        bot.loop.create_task(
+            party_scheduler()
+        )
+
         scheduler_started = True
 
-print("Connected guilds:")
+    # THIS MUST BE INSIDE on_ready()
+    print("Connected guilds:")
 
-for guild in bot.guilds:
-    print(f"{guild.name} ({guild.id})")
+    for guild in bot.guilds:
+        print(f"{guild.name} ({guild.id})")
 
-    try:
-        await tree.sync(guild=discord.Object(id=guild.id))
-        print(f"Synced commands to {guild.name}")
-    except Exception as e:
-        print(f"Failed sync for {guild.name}: {e}")
+        try:
+            await tree.sync(
+                guild=discord.Object(id=guild.id)
+            )
 
-print(f"Logged in as {bot.user} in {len(bot.guilds)} servers")
+            print(f"Synced commands to {guild.name}")
+
+        except Exception as e:
+            print(f"Failed sync for {guild.name}: {e}")
+
+    print(
+        f"Logged in as {bot.user} in {len(bot.guilds)} servers"
+    )
+
 
 bot.run(TOKEN)
