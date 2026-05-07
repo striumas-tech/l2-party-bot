@@ -783,22 +783,21 @@ async def on_ready():
 
         scheduler_started = True
 
-    # THIS MUST BE INSIDE on_ready()
     print("Connected guilds:")
 
     for guild in bot.guilds:
         print(f"{guild.name} ({guild.id})")
 
-    try:
-        guild_obj = discord.Object(id=guild.id)
+        try:
+            guild_obj = discord.Object(id=guild.id)
 
-        tree.copy_global_to(guild=guild_obj)
-        synced = await tree.sync(guild=guild_obj)
+            tree.copy_global_to(guild=guild_obj)
+            synced = await tree.sync(guild=guild_obj)
 
-        print(f"Synced {len(synced)} commands to {guild.name}")
+            print(f"Synced {len(synced)} commands to {guild.name}")
 
-    except Exception as e:
-        print(f"Failed sync for {guild.name}: {e}")
+        except Exception as e:
+            print(f"Failed sync for {guild.name}: {e}")
 
     print(
         f"Logged in as {bot.user} in {len(bot.guilds)} servers"
