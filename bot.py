@@ -492,6 +492,292 @@ async def timezone_autocomplete(interaction: discord.Interaction, current: str):
         for tz in matches[:25]
     ]
 
+def build_setup_embed(session):
+    start_ts = int(session["start_time"].timestamp())
+    end_ts = int(session["end_time"].timestamp())
+
+    embed = discord.Embed(
+        title="⚙️ Party Setup",
+        description="Use the menus below to add/remove class slots, then press **Create Party**.",
+        color=discord.Color.blue()
+    )
+
+    embed.add_field(
+        name="Zone",
+        value=session["zone"].upper(),
+        inline=True
+    )
+
+    embed.add_field(
+        name="Time",
+        value=f"<t:{start_ts}:t> - <t:{end_ts}:t>",
+        inline=True
+    )
+
+    text = ""
+
+    for role, count in session["roles_required"].items():
+        if count > 0:
+            text += f"{ROLE_DATA[role]['icon']} **{ROLE_DATA[role]['name']}** x{count}\n"
+
+    if not text:
+        text = "No roles selected."
+
+    embed.add_field(
+        name="Selected Roles",
+        value=text,
+        inline=False
+    )
+
+    return embed
+
+
+class AddRoleSelect(discord.ui.Select):
+    def __init__(self, session_id):
+        self.session_id = session_id
+
+        options = [
+            discord.SelectOption(
+                label=data["name"],
+                value=role,
+                emoji=data["icon"]
+            )
+            for role, data in ROLE_DATA.items()
+        ]
+
+        super().__init__(
+            placeholder="Add class slot",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        session = setup_sessions.get(self.session_id)
+
+        if not session:
+            await interaction.response.send_message(
+                "Setup expired. Run /lfp again.",
+                ephemeral=True
+            )
+            return
+
+        if interaction.user.id != session["leader_id"]:
+            await interaction.response.send_message(
+                "Only the party creator can edit this setup.",
+                ephemeral=True
+            )
+            return
+
+        role = self.values[0]
+        session["roles_required"][role] = session["roles_required"].get(role, 0) + 1
+
+        await interaction.response.edit_message(
+            embed=build_setup_embed(session),
+            view=PartySetupView(self.session_id)
+        )
+
+
+class RemoveRoleSelect(discord.ui.Select):
+    def __init__(self, session_id):
+        self.session_id = session_id
+
+        options = [
+            discord.SelectOption(
+                label=data["name"],
+                value=role,
+                emoji=data["icon"]
+            )
+            for role, data in ROLE_DATA.items()
+        ]
+
+        super().__init__(
+            placeholder="Remove class slot",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        session = setup_sessions.get(self.session_id)
+
+        if not session:
+            await interaction.response.send_message(
+                "Setup expired. Run /lfp again.",
+                ephemeral=True
+            )
+            return
+
+        if interaction.user.id != session["leader_id"]:
+            await interaction.response.send_message(
+                "Only the party creator can edit this setup.",
+                ephemeral=True
+            )
+            return
+
+        role = self.values[0]
+
+        if session["roles_required"].get(role, 0) > 0:
+            session["roles_required"][role] -= 1
+
+            if session["roles_required"][role] <= 0:
+                del session["roles_required"][role]
+
+        await interaction.response.edit_message(
+            embed=build_setup_embed(session),
+            view=PartySetupView(self.session_id)
+        )
+
+
+class CreatePartyButton(discord.ui.Button):
+    def __init__(self, session_id):
+        super().__init__(
+            label="Create Party",
+            style=discord.ButtonStyle.success
+        )
+        self.session_id = session_id
+
+    async def callback(self, interaction: discord.Interaction):
+        session = setup_sessions.get(self.session_id)
+
+        if not session:
+            await interaction.response.send_message(
+                "Setup expired. Run /lfp again.",
+                ephemeral=True
+            )
+            return
+
+        if interaction.user.id != session["leader_id"]:
+            await interaction.response.send_message(
+                "Only the party creator can create this party.",
+                ephemeral=True
+            )
+            return
+
+        guild_id = interaction.guild.id
+
+        target_channel_id = await get_party_channel_id(guild_id)
+        target_channel = bot.get_channel(target_channel_id) if target_channel_id else interaction.channel
+
+        if not target_channel:
+            await interaction.response.send_message(
+                "Party channel not found. Use /setpartychannel again.",
+                ephemeral=True
+            )
+            return
+
+        async with db_pool.acquire() as conn:
+            existing = await conn.fetchrow(
+                """
+                SELECT party_id FROM lfp_party_members
+                WHERE guild_id=$1 AND user_id=$2
+                """,
+                guild_id,
+                interaction.user.id
+            )
+
+        if existing:
+            await interaction.response.send_message(
+                "You are already in a party in this server.",
+                ephemeral=True
+            )
+            return
+
+        party_id = generate_party_id(session["zone"])
+
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO lfp_parties (
+                    party_id, guild_id, channel_id, message_id,
+                    leader_id, leader_class, zone,
+                    roles_required, start_time, end_time, reminded
+                )
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                """,
+                party_id,
+                guild_id,
+                target_channel.id,
+                None,
+                interaction.user.id,
+                session["leader_class"],
+                session["zone"],
+                json.dumps(session["roles_required"]),
+                session["start_time"],
+                session["end_time"],
+                False
+            )
+
+            await conn.execute(
+                """
+                INSERT INTO lfp_party_members (guild_id, user_id, party_id, role)
+                VALUES ($1,$2,$3,$4)
+                """,
+                guild_id,
+                interaction.user.id,
+                party_id,
+                session["leader_class"]
+            )
+
+        party = await load_party(party_id)
+
+        sent = await target_channel.send(
+            embed=build_embed(party),
+            view=PartyView(party_id, party, interaction.user.id)
+        )
+
+        async with db_pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE lfp_parties SET message_id=$1 WHERE party_id=$2",
+                sent.id,
+                party_id
+            )
+
+        del setup_sessions[self.session_id]
+
+        await interaction.response.edit_message(
+            content=f"✅ Party created in {target_channel.mention}",
+            embed=None,
+            view=None
+        )
+
+
+class CancelSetupButton(discord.ui.Button):
+    def __init__(self, session_id):
+        super().__init__(
+            label="Cancel",
+            style=discord.ButtonStyle.danger
+        )
+        self.session_id = session_id
+
+    async def callback(self, interaction: discord.Interaction):
+        session = setup_sessions.get(self.session_id)
+
+        if session and interaction.user.id != session["leader_id"]:
+            await interaction.response.send_message(
+                "Only the party creator can cancel this setup.",
+                ephemeral=True
+            )
+            return
+
+        setup_sessions.pop(self.session_id, None)
+
+        await interaction.response.edit_message(
+            content="❌ Party setup cancelled.",
+            embed=None,
+            view=None
+        )
+
+
+class PartySetupView(discord.ui.View):
+    def __init__(self, session_id):
+        super().__init__(timeout=900)
+        self.session_id = session_id
+
+        self.add_item(AddRoleSelect(session_id))
+        self.add_item(RemoveRoleSelect(session_id))
+        self.add_item(CreatePartyButton(session_id))
+        self.add_item(CancelSetupButton(session_id))
 
 # ================= COMMANDS =================
 
@@ -556,21 +842,6 @@ async def lfp(
     start: str,
     end: str,
     leader_class: Choice[str],
-    tank: bool = False,
-    wc: bool = False,
-    pp: bool = False,
-    bd: bool = False,
-    leecher: int = 0,
-    destro: int = 0,
-    random: int = 0,
-    sws: bool = False,
-    se: bool = False,
-    ee: bool = False,
-    bs: bool = False,
-    dd: int = 0,
-    mage: int = 0,
-    sum: bool = False,
-    spoil: bool = False,
 ):
     try:
         start_time = await parse_user_time(start, interaction)
@@ -585,6 +856,28 @@ async def lfp(
             ephemeral=True
         )
         return
+
+    session_id = f"{interaction.guild.id}:{interaction.user.id}:{uuid.uuid4().hex[:6]}"
+
+    roles_required = {
+        leader_class.value: 1
+    }
+
+    setup_sessions[session_id] = {
+        "guild_id": interaction.guild.id,
+        "leader_id": interaction.user.id,
+        "leader_class": leader_class.value,
+        "zone": zone,
+        "start_time": start_time,
+        "end_time": end_time,
+        "roles_required": roles_required,
+    }
+
+    await interaction.response.send_message(
+        embed=build_setup_embed(setup_sessions[session_id]),
+        view=PartySetupView(session_id),
+        ephemeral=True
+    )
 
     guild_id = interaction.guild.id
 
