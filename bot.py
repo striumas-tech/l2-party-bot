@@ -787,7 +787,7 @@ async def on_ready():
     print("Connected guilds:")
 
     for guild in bot.guilds:
-    print(f"{guild.name} ({guild.id})")
+        print(f"{guild.name} ({guild.id})")
 
     try:
         guild_obj = discord.Object(id=guild.id)
