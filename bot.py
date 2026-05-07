@@ -25,6 +25,7 @@ ALL_TIMEZONES = sorted(available_timezones())
 
 ROLE_DATA = {
     "tank": {"icon": "🛡", "name": "Tank"},
+    "destro": {"icon": "🪓", "name": "Destroyer"},
     "leecher": {"icon": "🧟", "name": "Leecher"},
     "random": {"icon": "🎲", "name": "Random"},
     "wc": {"icon": "📜", "name": "Warcryer"},
@@ -254,7 +255,7 @@ def build_embed(party):
     groups = {
         "🛡 TANK": ["tank"],
         "🧩 SUPPORT": ["wc", "pp", "bd", "sws", "se", "ee", "bs"],
-        "⚔️ DPS": ["dd", "mage", "sum", "spoil"],
+        "⚔️ DPS": ["dd", "mage", "destro", "sum", "spoil"],
         "🎯 OTHER": ["leecher", "random"],
     }
 
@@ -555,20 +556,21 @@ async def lfp(
     start: str,
     end: str,
     leader_class: Choice[str],
-    tank: int = 0,
-    wc: int = 0,
-    pp: int = 0,
-    bd: int = 0,
+    tank: bool = False,
+    wc: bool = False,
+    pp: bool = False,
+    bd: bool = False,
     leecher: int = 0,
+    destro: int = 0,
     random: int = 0,
-    sws: int = 0,
-    se: int = 0,
-    ee: int = 0,
-    bs: int = 0,
+    sws: bool = False,
+    se: bool = False,
+    ee: bool = False,
+    bs: bool = False,
     dd: int = 0,
     mage: int = 0,
-    sum: int = 0,
-    spoil: int = 0,
+    sum: bool = False,
+    spoil: bool = False,
 ):
     try:
         start_time = await parse_user_time(start, interaction)
@@ -614,10 +616,10 @@ async def lfp(
         return
 
     roles_input = {
-        "tank": tank,
-        "wc": wc, "pp": pp, "bd": bd, "sws": sws,
-        "se": se, "ee": ee, "bs": bs,
-        "dd": dd, "mage": mage, "sum": sum, "spoil": spoil,
+        "tank": 1 if tank else 0,
+        "wc": 1 if wc else 0, "pp": 1 if pp else 0, "bd": 1 if bd else 0, "sws": 1 if sws else 0,
+        "se": 1 if se else 0, "ee": 1 if ee else 0, "bs": 1 if bs else 0,
+        "dd": dd, "mage": mage, "sum": 1 if sum else 0, "spoil": 1 if spoil else 0, "destro": destro,
         "leecher": leecher,
         "random": random,
     }
