@@ -465,41 +465,107 @@ def build_setup_embed(session):
     embed.add_field(name="Selected Roles", value=text, inline=False)
     return embed
 
-class AddRoleSelect(discord.ui.Select):
+async def add_role_to_setup(interaction: discord.Interaction, session_id: str, role: str):
+    session = setup_sessions.get(session_id)
+
+    if not session:
+        await interaction.response.send_message(
+            "Setup expired. Run /lfp again.",
+            ephemeral=True
+        )
+        return
+
+    if interaction.user.id != session["leader_id"]:
+        await interaction.response.send_message(
+            "Only the party creator can edit this setup.",
+            ephemeral=True
+        )
+        return
+
+    session["roles_required"][role] = session["roles_required"].get(role, 0) + 1
+
+    await interaction.response.edit_message(
+        embed=build_setup_embed(session),
+        view=PartySetupView(session_id)
+    )
+
+
+class AddSupportSelect(discord.ui.Select):
     def __init__(self, session_id):
         self.session_id = session_id
 
+        roles = ["wc", "pp", "bd", "sws", "se", "ee", "bs"]
+
         options = [
-            discord.SelectOption(label=data["name"], value=role, emoji=data["icon"])
-            for role, data in ROLE_DATA.items()
+            discord.SelectOption(
+                label=ROLE_DATA[r]["name"],
+                value=r,
+                emoji=ROLE_DATA[r]["icon"]
+            )
+            for r in roles
         ]
 
         super().__init__(
-            placeholder="Add class slot",
+            placeholder="Add support class",
             min_values=1,
             max_values=1,
             options=options
         )
 
     async def callback(self, interaction: discord.Interaction):
-        session = setup_sessions.get(self.session_id)
+        await add_role_to_setup(interaction, self.session_id, self.values[0])
 
-        if not session:
-            await interaction.response.send_message("Setup expired. Run /lfp again.", ephemeral=True)
-            return
 
-        if interaction.user.id != session["leader_id"]:
-            await interaction.response.send_message("Only the party creator can edit this setup.", ephemeral=True)
-            return
+class AddDpsSelect(discord.ui.Select):
+    def __init__(self, session_id):
+        self.session_id = session_id
 
-        role = self.values[0]
-        session["roles_required"][role] = session["roles_required"].get(role, 0) + 1
+        roles = ["dd", "mage", "destro", "sum", "spoil"]
 
-        await interaction.response.edit_message(
-            embed=build_setup_embed(session),
-            view=PartySetupView(self.session_id)
+        options = [
+            discord.SelectOption(
+                label=ROLE_DATA[r]["name"],
+                value=r,
+                emoji=ROLE_DATA[r]["icon"]
+            )
+            for r in roles
+        ]
+
+        super().__init__(
+            placeholder="Add DPS class",
+            min_values=1,
+            max_values=1,
+            options=options
         )
 
+    async def callback(self, interaction: discord.Interaction):
+        await add_role_to_setup(interaction, self.session_id, self.values[0])
+
+
+class AddOtherSelect(discord.ui.Select):
+    def __init__(self, session_id):
+        self.session_id = session_id
+
+        roles = ["tank", "leecher", "random"]
+
+        options = [
+            discord.SelectOption(
+                label=ROLE_DATA[r]["name"],
+                value=r,
+                emoji=ROLE_DATA[r]["icon"]
+            )
+            for r in roles
+        ]
+
+        super().__init__(
+            placeholder="Add other role",
+            min_values=1,
+            max_values=1,
+            options=options
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        await add_role_to_setup(interaction, self.session_id, self.values[0])
 class RemoveRoleSelect(discord.ui.Select):
     def __init__(self, session_id):
         self.session_id = session_id
@@ -670,7 +736,9 @@ class PartySetupView(discord.ui.View):
         super().__init__(timeout=900)
         self.session_id = session_id
 
-        self.add_item(AddRoleSelect(session_id))
+        self.add_item(AddSupportSelect(session_id))
+        self.add_item(AddDpsSelect(session_id))
+        self.add_item(AddOtherSelect(session_id))
         self.add_item(RemoveRoleSelect(session_id))
         self.add_item(CreatePartyButton(session_id))
         self.add_item(CancelSetupButton(session_id))
