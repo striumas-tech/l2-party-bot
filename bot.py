@@ -645,35 +645,35 @@ class CreatePartyButton(discord.ui.Button):
                 interaction.user.id
             )
             
-        if existing:
-            
-            party_exists = await conn.fetchrow(
-                """
-                SELECT party_id
-                FROM lfp_parties
-                WHERE party_id=$1
-                """,
-                existing["party_id"]
-            )
-            
-        if not party_exists:
-            
-            await conn.execute(
-                """
-                DELETE FROM lfp_party_members
-                WHERE guild_id=$1 AND user_id=$2
-                """,
-                guild_id,
-                interaction.user.id
-            )
-
-        else:
-
-            await interaction.response.send_message(
-                "You are already in a party in this server.",
-                ephemeral=True
-            )
-            return
+            if existing:
+                
+                party_exists = await conn.fetchrow(
+                    """
+                    SELECT party_id
+                    FROM lfp_parties
+                    WHERE party_id=$1
+                    """,
+                    existing["party_id"]
+                )
+                
+                if not party_exists:
+                    
+                    await conn.execute(
+                        """
+                        DELETE FROM lfp_party_members
+                        WHERE guild_id=$1 AND user_id=$2
+                        """,
+                        guild_id,
+                        interaction.user.id
+                    )
+                
+                else:
+                    
+                    await interaction.response.send_message(
+                        "You are already in a party in this server.",
+                        ephemeral=True
+                    )
+                    return
 
         party_id = generate_party_id(session["zone"])
 
