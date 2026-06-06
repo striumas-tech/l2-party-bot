@@ -644,11 +644,30 @@ class CreatePartyButton(discord.ui.Button):
             )
 
         if existing:
-            await interaction.response.send_message(
+            party_exists = await conn.fetchrow(
+                """
+                SELECT party_id
+                FROM lfp_parties
+                WHERE party_id = $1
+                """,
+                existing["party_id"]
+            )
+
+            if not party_exists:
+                await conn.execute(
+                    """
+                    DELETE FROM lfp_party_members
+                    WHERE guild_id=$1 AND user_id=$2
+                    """,
+                    guild_id,
+                    interaction.user.id
+                )
+            else:
+                await interaction.response.send_message(
                 "You are already in a party in this server.",
                 ephemeral=True
-            )
-            return
+                )
+                return
 
         party_id = generate_party_id(session["zone"])
 
@@ -688,10 +707,31 @@ class CreatePartyButton(discord.ui.Button):
 
         party = await load_party(party_id)
 
-        sent = await target_channel.send(
+        try:
+            sent = await target_channel.send(
             embed=build_embed(party),
             view=PartyView(party_id, party, interaction.user.id)
         )
+
+        except discord.Forbidden:
+
+            await delete_party(party_id)
+
+            async with db_pool.acquire() as conn:
+                await conn.execute(
+                    """
+                    DELETE FROM lfp_party_members
+                    WHERE party_id = $1
+                    """,
+                    party_id
+                )
+
+            await interaction.response.send_message(
+                f"❌ I cannot send messages in {target_channel.mention}. "
+                f"Check bot permissions and run /setpartychannel again.",
+                ephemeral=True
+            )
+            return
 
         async with db_pool.acquire() as conn:
             await conn.execute(
