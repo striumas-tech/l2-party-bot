@@ -653,21 +653,21 @@ class CreatePartyButton(discord.ui.Button):
                 existing["party_id"]
             )
 
-            if not party_exists:
-                await conn.execute(
-                    """
-                    DELETE FROM lfp_party_members
-                    WHERE guild_id=$1 AND user_id=$2
-                    """,
-                    guild_id,
-                    interaction.user.id
-                )
-            else:
-                await interaction.response.send_message(
+        if not party_exists:
+            await conn.execute(
+                """
+                DELETE FROM lfp_party_members
+                WHERE guild_id=$1 AND user_id=$2
+                """,
+                guild_id,
+                interaction.user.id
+            )
+        else:
+            await interaction.response.send_message(
                 "You are already in a party in this server.",
                 ephemeral=True
-                )
-                return
+            )
+            return
 
         party_id = generate_party_id(session["zone"])
 
@@ -898,10 +898,20 @@ async def party_scheduler():
                 if 0 < seconds_left <= 600:
                     mentions = " ".join(f"<@{uid}>" for uid in party["members"])
 
-                    await channel.send(
-                        f"⏰ **{party['zone'].upper()} PARTY starts in 10 minutes!**\n{mentions}",
-                        allowed_mentions=discord.AllowedMentions(users=True)
-                    )
+                    try:
+                        await channel.send(
+                            f"⏰ **{party['zone'].upper()} PARTY starts in 10 minutes!**\n{mentions}",
+                            allowed_mentions=discord.AllowedMentions(users=True)
+                        )
+                    
+                    except discord.Forbidden:
+                        print(
+                            f"No access to channel {party['channel_id']} "
+                            f"for reminder of {party['party_id']}"
+                        )
+                    
+                    except Exception as e:
+                        print("Reminder failed:", e)
 
                     async with db_pool.acquire() as conn:
                         await conn.execute(
@@ -918,8 +928,20 @@ async def party_scheduler():
 
                 await delete_party(party["party_id"])
 
-                await channel.send(f"❌ **{party['zone'].upper()} PARTY expired.**")
-                continue
+                try:
+                    await channel.send(
+                        f"❌ **{party['zone'].upper()} PARTY expired.**"
+                    )
+                
+                except discord.Forbidden:
+                    print(
+                        f"No access to channel {party['channel_id']} "
+                        f"for expired party {party['party_id']}"
+                    )
+                
+                except Exception as e:
+                    print("Party expired message failed:", e)
+                    continue
 
             try:
                 msg = await channel.fetch_message(party["message_id"])
